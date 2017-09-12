@@ -2309,7 +2309,7 @@ void PeFile::pack0(OutputFile *fo, ht &ih, ht &oh,
 
     const unsigned oobjs = last_section_rsrc_only ? 4 : 3;
     ////pe_section_t osection[oobjs];
-    pe_section_t osection[4];
+    pe_section_t osection[5];
     // section 0 : bss
     //         1 : [ident + header] + packed_data + unpacker + tls + loadconf
     //         2 : not compressed data
@@ -2321,7 +2321,7 @@ void PeFile::pack0(OutputFile *fo, ht &ih, ht &oh,
     // note: there should be no data in the last section which needs fixup
 
     // identsplit - number of ident + (upx header) bytes to put into the PE header
-    const unsigned sizeof_osection = sizeof(osection[0]) * oobjs;
+    const unsigned sizeof_osection = sizeof(osection[0]) * (oobjs+1);
     int identsplit = pe_offset + sizeof_osection + sizeof(ht);
     if ((identsplit & 0x1ff) == 0)
         identsplit = 0;
@@ -2349,7 +2349,7 @@ void PeFile::pack0(OutputFile *fo, ht &ih, ht &oh,
     memset(osection,0,sizeof(osection));
 
     oh.entry = upxsection;
-    oh.objects = oobjs;
+    oh.objects = oobjs + 1;
     oh.chksum = 0;
 
     // fill the data directory
@@ -2403,9 +2403,17 @@ void PeFile::pack0(OutputFile *fo, ht &ih, ht &oh,
         callProcessRelocs(rel, ic);
 
     // when the resource is put alone into section 3
-    const unsigned res_start = (ic + oam1) &~ oam1;;
+    const unsigned res_start = (ic + oam1) &~ oam1;
     if (last_section_rsrc_only)
         callProcessResources(res, ic = res_start);
+	const unsigned dummy_start = (ic + oam1) &~oam1;
+	const unsigned dummy_size = 512;
+	ic += dummy_size;
+	MemBuffer dummy_data(dummy_size);
+	for (unsigned char *start = (unsigned char *)dummy_data.getVoidPtr(), *end = start + 512; start < end; start++)
+	{
+		*start = rand();
+	}
 
     defineSymbols(ncsection, upxsection, sizeof(oh),
                   identsize - identsplit, s1addr);
@@ -2487,10 +2495,20 @@ void PeFile::pack0(OutputFile *fo, ht &ih, ht &oh,
         oh.imagesize = (osection[3].vaddr + osection[3].vsize + oam1) &~ oam1;
         if (soresources == 0)
         {
-            oh.objects = 3;
+            oh.objects = 4;
             memset(&osection[3], 0, sizeof(osection[3]));
         }
     }
+
+	{
+		strcpy(osection[oh.objects-1].name, ".sig");
+		osection[oh.objects - 1].vaddr = dummy_start;
+		osection[oh.objects - 1].size = (dummy_size + fam1) &~fam1;
+		osection[oh.objects - 1].vsize = osection[oh.objects - 1].size;
+		osection[oh.objects - 1].rawdataptr = osection[oh.objects - 2].rawdataptr + osection[oh.objects - 2].size;
+		osection[oh.objects - 1].flags = (unsigned)(PEFL_DATA | PEFL_READ);
+		oh.imagesize = (osection[oh.objects - 1].vaddr + osection[oh.objects - 1].vsize + oam1) &~oam1;
+	}
 
     oh.bsssize  = osection[0].vsize;
     oh.datasize = osection[2].vsize + (oobjs > 3 ? osection[3].vsize : 0);
@@ -2515,7 +2533,7 @@ void PeFile::pack0(OutputFile *fo, ht &ih, ht &oh,
 
     // write loader + compressed file
     fo->write(&oh,sizeof(oh));
-    fo->write(osection,sizeof(osection[0])*oobjs);
+    fo->write(osection, sizeof_osection);
     // some alignment
     if (identsplit == identsize)
     {
@@ -2555,6 +2573,9 @@ void PeFile::pack0(OutputFile *fo, ht &ih, ht &oh,
         if ((ic = fo->getBytesWritten() & fam1) != 0)
             fo->write(ibuf,oh.filealign - ic);
     }
+	fo->write(dummy_data, dummy_size);
+	if ((ic = fo->getBytesWritten() & fam1) != 0)
+		fo->write(ibuf, oh.filealign - ic);
 
 #if 0
     printf("%-13s: program hdr  : %8ld bytes\n", getName(), (long) sizeof(oh));

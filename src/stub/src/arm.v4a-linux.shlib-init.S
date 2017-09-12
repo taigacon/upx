@@ -85,7 +85,7 @@ __ARM_NR_cacheflush =  2 + __ARM_NR_BASE
 //  .long offset({p_info; b_info; compressed data})
 
 _start: .globl _start
-        nop  //; bkpt  // for debugging
+        //nop  //; bkpt  // for debugging
         stmdb sp!,{arg1,arg2,arg3, eax,ecx,r6,r7, fp,lr,pc}
         mov fp,sp
 o_uinit= (3+4+2)*4  // pc

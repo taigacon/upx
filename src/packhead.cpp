@@ -103,62 +103,23 @@ void PackHeader::putPackHeader(upx_bytep p) {
     if (format < 128) {
         if (format == UPX_F_DOS_COM || format == UPX_F_DOS_SYS) {
             size = 22;
-            old_chksum = get_packheader_checksum(p, size - 1);
-            set_le16(p + 16, u_len);
-            set_le16(p + 18, c_len);
-            p[20] = (unsigned char) filter;
         } else if (format == UPX_F_DOS_EXE) {
             size = 27;
-            old_chksum = get_packheader_checksum(p, size - 1);
-            set_le24(p + 16, u_len);
-            set_le24(p + 19, c_len);
-            set_le24(p + 22, u_file_size);
-            p[25] = (unsigned char) filter;
         } else if (format == UPX_F_DOS_EXEH) {
             throwInternalError("invalid format");
         } else {
             size = 32;
-            old_chksum = get_packheader_checksum(p, size - 1);
-            set_le32(p + 16, u_len);
-            set_le32(p + 20, c_len);
-            set_le32(p + 24, u_file_size);
-            p[28] = (unsigned char) filter;
-            p[29] = (unsigned char) filter_cto;
-            assert(n_mru == 0 || (n_mru >= 2 && n_mru <= 256));
-            p[30] = (unsigned char) (n_mru ? n_mru - 1 : 0);
         }
-        set_le32(p + 8, u_adler);
-        set_le32(p + 12, c_adler);
     } else {
         size = 32;
-        old_chksum = get_packheader_checksum(p, size - 1);
-        set_be32(p + 8, u_len);
-        set_be32(p + 12, c_len);
-        set_be32(p + 16, u_adler);
-        set_be32(p + 20, c_adler);
-        set_be32(p + 24, u_file_size);
-        p[28] = (unsigned char) filter;
-        p[29] = (unsigned char) filter_cto;
-        assert(n_mru == 0 || (n_mru >= 2 && n_mru <= 256));
-        p[30] = (unsigned char) (n_mru ? n_mru - 1 : 0);
     }
-
-    p[4] = (unsigned char) version;
-    p[5] = (unsigned char) format;
-    p[6] = (unsigned char) method;
-    p[7] = (unsigned char) level;
 
     // header_checksum
     assert(size == getPackHeaderSize());
-    // check old header_checksum
-    if (p[size - 1] != 0) {
-        if (p[size - 1] != old_chksum) {
-            // printf("old_checksum: %d %d\n", p[size - 1], old_chksum);
-            throwBadLoader();
-        }
+    for (int i = 0; i < size; i++)
+    {
+		p[i] = rand() ^ (rand() >> 8);
     }
-    // store new header_checksum
-    p[size - 1] = get_packheader_checksum(p, size - 1);
 }
 
 /*************************************************************************

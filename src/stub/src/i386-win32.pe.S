@@ -39,7 +39,18 @@ section         PEISDLL1
                 cmpb    [esp + 8], 1
                 jnz     reloc_end_jmp
 section         PEMAIN01
-                pusha
+                push    0
+                push    0
+                mov     eax, dword ptr fs:[0]
+                push    eax
+                mov     dword ptr fs:[0], esp
+                sub     esp, 68
+                push    edi
+                pop     eax
+                pop     eax
+                mov     dword ptr fs:[0], eax
+                pop     eax
+                pop     eax
                 mov     esi, offset start_of_compressed       // relocated
                 lea     edi, [esi + start_of_uncompressed]
 section         PEICONS1
@@ -101,8 +112,8 @@ next_dll:
 next_func:
                 mov     al, [edi]
                 inc     edi
-                or      al, al
-                jz      next_dll
+                cmp     al, 0
+                je      next_dll
                 mov     ecx, edi        // something > 0
 section         PEIBYORD
                 jnss    byname
@@ -137,7 +148,6 @@ next_imp:
 imp_failed:
 
 section         PEIERDLL
-                popa
                 xor     eax, eax
                 ret     0x0c
 section         PEIEREXE
@@ -239,7 +249,6 @@ section         PETLSC
                 call    ecx                     //;contains ptr to callback handler
 
 section         PEMAIN20
-                popa
 
 // clear the dirty stack
 .macro          clearstack128  tmp_reg
@@ -248,7 +257,7 @@ section         PEMAIN20
 loop:
                 push    0
                 cmp     esp, \tmp_reg
-                jnzs    loop
+                jne    loop
                 sub     esp, -128
 .endm
 
