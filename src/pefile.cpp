@@ -2157,6 +2157,27 @@ void PeFile::callProcessResources(Resource &res, unsigned &ic)
     ic += soresources;
 }
 
+static void generateSectionName(char *dst)
+{
+    for (int i = 0; i < 8-1; i++)
+    {
+        int j = rand()%(26 + 26 + 10);
+        if (j < 26)
+        {
+            dst[i] = 'a' + j;
+        }
+        else if (j < 52)
+        {
+            dst[i] = 'A' + j - 26;
+        }
+        else
+        {
+            dst[i] = '0' + j - 52;
+        }
+    }
+    dst[8] = '\0';
+}
+
 template <typename LEXX, typename ht>
 void PeFile::pack0(OutputFile *fo, ht &ih, ht &oh,
                    unsigned subsystem_mask, upx_uint64_t default_imagebase,
@@ -2405,8 +2426,8 @@ void PeFile::pack0(OutputFile *fo, ht &ih, ht &oh,
     const unsigned ncsize_virt_increase = (ncsize & oam1) == 0 ? 8 : 0;
 
     // fill the sections
-    strcpy(osection[0].name,"UPX0");
-    strcpy(osection[1].name,"UPX1");
+    generateSectionName(osection[0].name);
+    generateSectionName(osection[1].name);
     // after some windoze debugging I found that the name of the sections
     // DOES matter :( .rsrc is used by oleaut32.dll (TYPELIBS)
     // and because of this lame dll, the resource stuff must be the
@@ -2415,7 +2436,14 @@ void PeFile::pack0(OutputFile *fo, ht &ih, ht &oh,
     // ... even worse: exploder.exe in NiceTry also depends on this to
     // locate version info
 
-    strcpy(osection[2].name, !last_section_rsrc_only && soresources ? ".rsrc" : "UPX2");
+    if (!last_section_rsrc_only && soresources)
+    {
+        strcpy(osection[2].name, ".rsrc");
+    }
+    else
+    {
+        generateSectionName(osection[2].name);
+    }
 
     osection[0].vaddr = rvamin;
     osection[1].vaddr = s1addr;

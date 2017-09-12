@@ -30,8 +30,8 @@
 
 section         UPX1HEAD
 
-                .byte   85,80,88,33     //  0  UPX_MAGIC_LE32
-                .byte   161,216,208,213 //     UPX_MAGIC2_LE32
+                .byte   0xD3,0xB1,0x98,0xA5     //  0  UPX_MAGIC_LE32
+                .byte   0x09,0xF8,0x9A,0x41 //     UPX_MAGIC2_LE32
                 .long   0               //  8  uncompressed adler32
                 .long   0               // 12  compressed adler32
 
@@ -53,7 +53,7 @@ section         UPX1HEAD
                 .byte   0               // 28  filter id
                 .byte   0               // 29  filter cto
                 .byte   0               //  unused
-                .byte   45              // 31  header checksum
+                .byte   225              // 31  header checksum
 #endif
 
 /* vim:set ts=8 sw=8 et: */

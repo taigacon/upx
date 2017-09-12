@@ -98,7 +98,7 @@ int open(char const *, unsigned, unsigned);
 // UPX stuff
 **************************************************************************/
 
-#define UPX_MAGIC_LE32  0x21585055          // "UPX!"
+#define UPX_MAGIC_LE32          0xA598B1D3      /* "UPX!" */
 
 
 #define nrv_byte unsigned char
