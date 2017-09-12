@@ -32,8 +32,8 @@
 
 
 #define STUB_POWERPC64LE_DARWIN_MACHO_FOLD_SIZE    6512
-#define STUB_POWERPC64LE_DARWIN_MACHO_FOLD_ADLER32 0xddf7c367
-#define STUB_POWERPC64LE_DARWIN_MACHO_FOLD_CRC32   0x5f6b909e
+#define STUB_POWERPC64LE_DARWIN_MACHO_FOLD_ADLER32 0xfdd1c50a
+#define STUB_POWERPC64LE_DARWIN_MACHO_FOLD_CRC32   0xa852b06d
 
 unsigned char stub_powerpc64le_darwin_macho_fold[6512] = {
 /* 0x0000 */   8,  0,128,124,105,  0,  0, 72,208,  0,  6, 40, 32,  0,194, 76,
@@ -80,7 +80,7 @@ unsigned char stub_powerpc64le_darwin_macho_fold[6512] = {
 /* 0x0290 */ 120, 43,189,124,120, 35,159,124,120, 27,126,124,  0,  0, 38, 46,
 /* 0x02a0 */ 120,243,195,127,112,  0,129, 56, 12,  0,160, 56, 49,255,255, 75,
 /* 0x02b0 */ 112,  0, 33,129,  0,  0,169, 47, 40,  0,158, 64,116,  0, 33,129,
-/* 0x02c0 */  88, 33, 64, 61, 85, 80, 74, 97,  0, 80,137,127, 32,  0,222, 64,
+/* 0x02c0 */ 152,165, 64, 61,211,177, 74, 97,  0, 80,137,127, 32,  0,222, 64,
 /* 0x02d0 */   0,  0, 62,233,  0,  0,169, 47, 12,  1,254, 65, 16,  0,  0, 72,
 /* 0x02e0 */ 116,  0,161,128,  0,  0,165, 47, 16,  0,254, 64,127,  0, 96, 56,
 /* 0x02f0 */  33,254,255, 75,  0,  0,  0, 96, 64, 40,137,127,240,255,220, 65,
