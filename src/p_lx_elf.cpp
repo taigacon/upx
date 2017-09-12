@@ -578,7 +578,7 @@ void PackLinuxElf32::defineSymbols(Filter const *ft)
     upx_uint32_t adrm;
     len += (7&-lsize) + lsize;
     upx_uint32_t my_page_size = 4096u;
-    upx_uint32_t my_page_mask = -my_page_size;
+    upx_uint32_t my_page_mask = (-(upx_int32_t)my_page_size);
     is_big = (lo_va_user < (lo_va_stub + len + 2 * my_page_size));
     if (is_pie || (is_big /*&& ehdri.ET_EXEC==get_te16(&ehdri.e_type)*/)) {
         // .e_entry is set later by PackLinuxElf32::updateLoader
@@ -1193,7 +1193,7 @@ PackLinuxElf64amd::defineSymbols(Filter const *ft)
     unsigned lenu;
     len += (7&-lsize) + lsize;
     upx_uint64_t my_page_size = 4096u;
-    upx_uint64_t my_page_mask = -my_page_size;
+    upx_uint64_t my_page_mask = (-(upx_int32_t)my_page_size);
     is_big = (lo_va_user < (lo_va_stub + len + 2 * my_page_size));
     if (is_pie || (is_big /*&& ehdri.ET_EXEC==get_te16(&ehdri.e_type)*/)) {
         // .e_entry is set later by PackLinuxElf64::updateLoader
