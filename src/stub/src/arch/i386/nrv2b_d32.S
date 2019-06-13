@@ -64,7 +64,8 @@ section         N2BFAS10
                 jmps    dcl1_n2b
 section         N2BFAS11
 decompr_literalb_n2b:
-                mov     al, [esi]
+                mov     eax, [esi]
+                and   eax, 0x0000FFFF
                 inc     esi
                 mov     [edi], al
                 inc     edi
@@ -86,7 +87,9 @@ section         N2BFAS20
         mov al, [edi]  // force data cache allocate (PentiumPlain or MMX)
     #endif
                 jcs     decompr_literalb_n2b
-                mov     eax, 1
+                xor eax,eax
+               inc eax
+               mov eax,eax
 section         N2BDEC20
 loop1_n2b:
                 getbit  1

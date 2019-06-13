@@ -39,18 +39,8 @@ section         PEISDLL1
                 cmpb    [esp + 8], 1
                 jnz     reloc_end_jmp
 section         PEMAIN01
-                push    0
-                push    0
-                mov     eax, dword ptr fs:[0]
-                push    eax
-                mov     dword ptr fs:[0], esp
-                sub     esp, 68
-                push    edi
-                pop     eax
-                pop     eax
-                mov     dword ptr fs:[0], eax
-                pop     eax
-                pop     eax
+                pusha
+                mov  eax, eax
                 mov     esi, offset start_of_compressed       // relocated
                 lea     edi, [esi + start_of_uncompressed]
 section         PEICONS1
@@ -148,6 +138,7 @@ next_imp:
 imp_failed:
 
 section         PEIERDLL
+                popad
                 xor     eax, eax
                 ret     0x0c
 section         PEIEREXE
@@ -251,18 +242,19 @@ section         PETLSC
 section         PEMAIN20
 
 // clear the dirty stack
-.macro          clearstack128  tmp_reg
+.macro          clearstack256  tmp_reg
                 local   loop
-                lea     \tmp_reg, [esp - 128]
+                lea     \tmp_reg, [esp - 256]
 loop:
+                push    0
                 push    0
                 cmp     esp, \tmp_reg
                 jne    loop
-                sub     esp, -128
+                sub     esp, -256
 .endm
 
 section         CLEARSTACK
-                clearstack128 eax
+                clearstack256 eax
 
 section         PEMAIN21
 reloc_end_jmp:
@@ -272,6 +264,7 @@ section         PERETURN
                 inc     eax
                 ret     0x0C
 section         PEDOJUMP
+                
                 jmp    original_entry
 
 section         PETLSC2
