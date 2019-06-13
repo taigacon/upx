@@ -2,9 +2,9 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2017 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2017 Laszlo Molnar
-   Copyright (C) 2000-2017 John F. Reiser
+   Copyright (C) 1996-2019 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2019 Laszlo Molnar
+   Copyright (C) 2000-2019 John F. Reiser
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -33,6 +33,8 @@
 #ifndef __UPX_P_LX_ELF_H  //{
 #define __UPX_P_LX_ELF_H 1
 
+typedef upx_uint32_t u32_t;  // easier to type; more narrow
+typedef upx_uint64_t u64_t;  // easier to type; more narrow
 
 class PackLinuxElf : public PackUnix
 {
@@ -51,7 +53,7 @@ protected:
 
     virtual void pack1(OutputFile *, Filter &) = 0;  // generate executable header
     virtual int  pack2(OutputFile *, Filter &) = 0;  // append compressed data
-    virtual void pack3(OutputFile *, Filter &) = 0;  // append loader
+    virtual off_t pack3(OutputFile *, Filter &) = 0;  // append loader
     //virtual void pack4(OutputFile *, Filter &) = 0;  // append pack header
 
     virtual void generateElfHdr(
@@ -68,6 +70,7 @@ protected:
     static unsigned gnu_hash(char const *) /*const*/;
 
 protected:
+    static unsigned int const asl_delta = (1u<<12);  // --android-shlib extra page
     unsigned e_type;
     unsigned e_phnum;       /* Program header table entry count */
     unsigned e_shnum;
@@ -80,7 +83,6 @@ protected:
     unsigned sz_pack2a;  // after pack2() of all PT_LOAD
     unsigned lg2_page;  // log2(PAGE_SIZE)
     unsigned page_size;  // 1u<<lg2_page
-    bool is_big;  // stub style: must use area above the brk
     bool is_pie;  // is Position-Independent-Executable (ET_DYN main program)
     unsigned xct_off;  // shared library: file offset of SHT_EXECINSTR
     unsigned hatch_off;  // file offset of escape hatch
@@ -88,12 +90,17 @@ protected:
     upx_uint64_t load_va;  // PT_LOAD[0].p_vaddr
     upx_uint64_t xct_va;  // minimum SHT_EXECINSTR virtual address
     upx_uint64_t jni_onload_va;  // runtime &JNI_OnLoad
+    upx_uint64_t user_init_va;
+    unsigned user_init_off;  // within file_image
 
     upx_uint16_t  e_machine;
     unsigned char ei_class;
     unsigned char ei_data;
     unsigned char ei_osabi;
     char const *osabi_note;
+    unsigned upx_dt_init;  // DT_INIT, DT_PREINIT_ARRAY, DT_INIT_ARRAY
+    static unsigned const DT_NUM = 34;  // elf.h
+    unsigned dt_table[DT_NUM];  // 1+ index in PT_DYNAMIC
 
     unsigned char const *buildid_data;
     int o_elf_shnum; // num output Shdrs
@@ -119,9 +126,11 @@ protected:
 
     virtual void pack1(OutputFile *, Filter &);  // generate executable header
     virtual int  pack2(OutputFile *, Filter &);  // append compressed data
-    virtual void pack3(OutputFile *, Filter &);  // append loader
+    virtual off_t pack3(OutputFile *, Filter &);  // append loader
     virtual void pack4(OutputFile *, Filter &);  // append pack header
     virtual void unpack(OutputFile *fo);
+    virtual void unRel32(unsigned dt_rel, Elf32_Rel *rel0, unsigned relsz,
+        MemBuffer &membuf, unsigned const load_off, OutputFile *fo);
 
     virtual void generateElfHdr(
         OutputFile *,
@@ -149,20 +158,30 @@ protected:
     Elf32_Phdr const *elf_find_ptype(unsigned type, Elf32_Phdr const *phdr0, unsigned phnum);
     Elf32_Shdr const *elf_find_section_name(char const *) const;
     Elf32_Shdr const *elf_find_section_type(unsigned) const;
+    unsigned check_pt_load(Elf32_Phdr const *);
+    unsigned check_pt_dynamic(Elf32_Phdr const *);
+    void invert_pt_dynamic(Elf32_Dyn const *);
     void const *elf_find_dynamic(unsigned) const;
     Elf32_Dyn const *elf_has_dynamic(unsigned) const;
     virtual upx_uint64_t elf_unsigned_dynamic(unsigned) const;
+    virtual int adjABS(Elf32_Sym *sym, unsigned delta);
 
+    char const *get_str_name(unsigned st_name, unsigned symnum) const;
+    char const *get_dynsym_name(unsigned symnum, unsigned relnum) const;
 protected:
     Elf32_Ehdr  ehdri; // from input file
+    MemBuffer lowmem;  // especially for shlib
     Elf32_Phdr *phdri; // for  input file
-    Elf32_Shdr const *shdri; // from input file
+    Elf32_Shdr *shdri; // from input file
     Elf32_Phdr const *gnu_stack;  // propagate NX
     unsigned e_phoff;
     unsigned e_shoff;
+    unsigned sz_dynseg;  // PT_DYNAMIC.p_memsz
     unsigned so_slide;
     unsigned char *note_body;  // concatenated contents of PT_NOTEs, if any
     unsigned note_size;  // total size of PT_NOTEs
+    unsigned n_jmp_slot;
+    unsigned plt_off;
     unsigned page_mask;  // AND clears the offset-within-page
 
     Elf32_Dyn    const *dynseg;   // from PT_DYNAMIC
@@ -172,9 +191,11 @@ protected:
     Elf32_Sym    const *jni_onload_sym;
     char const *shstrtab;   // via Elf32_Shdr
 
-    Elf32_Shdr const *sec_strndx;
+    Elf32_Shdr       *sec_strndx;
     Elf32_Shdr const *sec_dynsym;
     Elf32_Shdr const *sec_dynstr;
+    unsigned symnum_end;
+    unsigned strtab_end;
 
     __packed_struct(cprElfHdr1)
         Elf32_Ehdr ehdr;
@@ -243,9 +264,12 @@ protected:
 
     virtual void pack1(OutputFile *, Filter &);  // generate executable header
     virtual int  pack2(OutputFile *, Filter &);  // append compressed data
-    virtual void pack3(OutputFile *, Filter &);  // append loader
+    virtual off_t pack3(OutputFile *, Filter &);  // append loader
     virtual void pack4(OutputFile *, Filter &);  // append pack header
     virtual void unpack(OutputFile *fo);
+    virtual void unRela64(upx_uint64_t dt_rela, Elf64_Rela *rela0, unsigned relasz,
+        MemBuffer &membuf, upx_uint64_t const load_off, upx_uint64_t const old_dtinit,
+        OutputFile *fo);
 
     virtual void generateElfHdr(
         OutputFile *,
@@ -272,20 +296,30 @@ protected:
     Elf64_Phdr const *elf_find_ptype(unsigned type, Elf64_Phdr const *phdr0, unsigned phnum);
     Elf64_Shdr const *elf_find_section_name(char const *) const;
     Elf64_Shdr const *elf_find_section_type(unsigned) const;
+    upx_uint64_t check_pt_load(Elf64_Phdr const *);
+    upx_uint64_t check_pt_dynamic(Elf64_Phdr const *);
+    void invert_pt_dynamic(Elf64_Dyn const *);
     void const *elf_find_dynamic(unsigned) const;
     Elf64_Dyn const *elf_has_dynamic(unsigned) const;
     virtual upx_uint64_t elf_unsigned_dynamic(unsigned) const;
+    virtual int adjABS(Elf64_Sym *sym, unsigned delta);
 
+    char const *get_str_name(unsigned st_name, unsigned symnum) const;
+    char const *get_dynsym_name(unsigned symnum, unsigned relnum) const;
 protected:
     Elf64_Ehdr  ehdri; // from input file
+    MemBuffer lowmem;  // especially for shlib
     Elf64_Phdr *phdri; // for  input file
-    Elf64_Shdr const *shdri; // from input file
+    Elf64_Shdr *shdri; // from input file
     Elf64_Phdr const *gnu_stack;  // propagate NX
     upx_uint64_t e_phoff;
     upx_uint64_t e_shoff;
+    upx_uint64_t sz_dynseg;  // PT_DYNAMIC.p_memsz
     upx_uint64_t so_slide;
     unsigned char *note_body;  // concatenated contents of PT_NOTEs, if any
     unsigned note_size;  // total size of PT_NOTEs
+    unsigned n_jmp_slot;
+    upx_uint64_t plt_off;
     upx_uint64_t page_mask;  // AND clears the offset-within-page
 
     Elf64_Dyn    const *dynseg;   // from PT_DYNAMIC
@@ -295,9 +329,11 @@ protected:
     Elf64_Sym    const *jni_onload_sym;
     char const *shstrtab;   // via Elf64_Shdr
 
-    Elf64_Shdr const *sec_strndx;
+    Elf64_Shdr       *sec_strndx;
     Elf64_Shdr const *sec_dynsym;
     Elf64_Shdr const *sec_dynstr;
+    unsigned symnum_end;
+    unsigned strtab_end;
 
     __packed_struct(cprElfHdr1)
         Elf64_Ehdr ehdr;
@@ -404,7 +440,6 @@ public:
     virtual const int *getFilters() const;
 protected:
     virtual void pack1(OutputFile *, Filter &);  // generate executable header
-    //virtual void pack3(OutputFile *, Filter &);  // append loader
     virtual void buildLoader(const Filter *);
     virtual Linker* newLinker() const;
     virtual void defineSymbols(Filter const *);
@@ -422,7 +457,6 @@ public:
     virtual const int *getFilters() const;
 protected:
     virtual void pack1(OutputFile *, Filter &);  // generate executable header
-    //virtual void pack3(OutputFile *, Filter &);  // append loader
     virtual void buildLoader(const Filter *);
     virtual Linker* newLinker() const;
     virtual void defineSymbols(Filter const *);

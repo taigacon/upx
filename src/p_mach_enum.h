@@ -2,7 +2,7 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 2007-2017 John F. Reiser
+   Copyright (C) 2007-2019 John F. Reiser
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -45,7 +45,8 @@
     enum { // cputype
         CPU_TYPE_I386      =          7,
         CPU_TYPE_X86_64    = 0x01000007,
-        CPU_TYPE_ARM       =         12,
+        CPU_TYPE_ARM       = 0x0000000c,
+        CPU_TYPE_ARM64     = 0x0100000c,
         CPU_TYPE_POWERPC   = 0x00000012,
         CPU_TYPE_POWERPC64 = 0x01000012,
         CPU_TYPE_POWERPC64LE = 0x01000021
@@ -57,7 +58,9 @@
     };
     enum { // filetype
         MH_EXECUTE = 2,
-        MH_DYLIB   = 6,
+        MH_PRELOAD = 5,     /* preloaded executable */
+        MH_DYLIB   = 6,     /* dynamically bound shared library */
+        MH_DYLINKER= 7,     /* /usr/bin/dyld */
         MH_BUNDLE  = 8      /* dynamically bound bundle file */
     };
     enum { // flags

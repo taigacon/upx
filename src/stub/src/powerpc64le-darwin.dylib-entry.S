@@ -1,9 +1,9 @@
 /*
- *  powerpc64le-darwin.dylib-entry.S -- program entry point & decompress (PowerPC32 dylib)
+ *  powerpc64le-darwin.dylib-entry.S -- program entry point & decompress (PowerPC64 dylib)
  *
  *  This file is part of the UPX executable compressor.
  *
- *  Copyright (C) 2005-2017 John F. Reiser
+ *  Copyright (C) 2005-2019 John F. Reiser
  *  All Rights Reserved.
  *
  *  UPX and the UCL library are free software; you can redistribute them
@@ -25,6 +25,11 @@
  *  <jreiser@users.sourceforge.net>
  *
  */
+
+#ifndef BIG_ENDIAN  //{
+#define BIG_ENDIAN 1  /* Apple on PowerPC* is BIG_ENDIAN */
+#endif  //}
+NBPW= 8  // Number of Bytes Per Word
 
 #include "arch/powerpc/64le/macros.S"
 #include "arch/powerpc/64le/ppc_regs.h"

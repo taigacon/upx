@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2017 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2017 Laszlo Molnar
+   Copyright (C) 1996-2019 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2019 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -90,16 +90,21 @@ struct timespec {
 
 // misc constants
 
-#if defined(__mips__) || defined(__powerpc64__)
+#if defined(__powerpc64__)  //{
+// __powerpc64__ hardware uses 64KiB in 64-bit mode, 4KiB in 32-bit mode.
+// EXCEPT qemu-ppc64 uses 4KiB in 64-bit mode, too.
+// So PAGE_SIZE is not constant in 64-bit mode of __powerpc64__.
+    // empty: not constant, must use run-time value from AT_PAGESZ
+#elif defined(__mips__)  //}{
 #define PAGE_MASK       (~0ul<<16)   // discards the offset, keeps the page
 #define PAGE_SIZE       ( 1ul<<16)
-#elif defined(__amd64__)
+#elif defined(__amd64__)  //}{
 #define PAGE_MASK       (~0ul<<12)   // discards the offset, keeps the page
 #define PAGE_SIZE       ( 1ul<<12)
-#elif defined(__i386__) || defined(__powerpc__) || defined(__arm__)  || defined(__AARCH64EL__)
+#elif defined(__i386__) || defined(__powerpc__) || defined(__arm__)  //}{
 #define PAGE_MASK       (~0ul<<12)   // discards the offset, keeps the page
 #define PAGE_SIZE       ( 1ul<<12)
-#endif
+#endif  //}
 
 #define SEEK_SET        0
 #define SEEK_CUR        1
@@ -136,6 +141,13 @@ struct timespec {
 #define MAP_ANONYMOUS   0x20
 #define MAP_DENYWRITE 0x0800  /* ETXTBSY */
 
+// <linux/prctl.h>
+// These should enable removal of PT_LOAD[1] for setting brk(0).
+// "git blame linux/kernel/sys.c" says:
+// 028ee4be34a09 (Cyrill Gorcunov        2012-01-12 17:20:55 -0800 2157)   case PR_SET_MM_START_BRK:
+#define PR_SET_MM               35
+# define PR_SET_MM_START_BRK            6
+# define PR_SET_MM_BRK                  7
 
 /*************************************************************************
 // i386 syscalls

@@ -2,9 +2,9 @@
 *
 *  This file is part of the UPX executable compressor.
 *
-*  Copyright (C) 1996-2017 Markus Franz Xaver Johannes Oberhumer
-*  Copyright (C) 1996-2017 Laszlo Molnar
-*  Copyright (C) 2000-2017 John F. Reiser
+*  Copyright (C) 1996-2019 Markus Franz Xaver Johannes Oberhumer
+*  Copyright (C) 1996-2019 Laszlo Molnar
+*  Copyright (C) 2000-2019 John F. Reiser
 *  All Rights Reserved.
 *
 *  UPX and the UCL library are free software; you can redistribute them
@@ -79,16 +79,18 @@ __ARM_NR_cacheflush =  2 + __ARM_NR_BASE
 #define ecx r5
 
   section ELFMAINX
+//  .long offset(b_info)    src of f_exp
 //  .long offset(.)  // detect relocation
 //  .long offset(user DT_INIT)
 //  .long offset(escape_hatch)
-//  .long offset({p_info; b_info; compressed data})
+//  .long offset(xct_off)    dst of f_exp
 
 _start: .globl _start
         //nop  //; bkpt  // for debugging
         stmdb sp!,{arg1,arg2,arg3, eax,ecx,r6,r7, fp,lr,pc}
         mov fp,sp
 o_uinit= (3+4+2)*4  // pc
+        str lr,[fp,#o_uinit]  // default for empty user_init
 
         bl main  // push &f_decompress
 f_decompress:
@@ -176,15 +178,20 @@ main:
 // 12. goto user DT_INIT
 
         mov edx,lr  // &f_decompress
+        add esi,edx,# _start - f_decompress - 5*4
 
-        add esi,edx,# _start - f_decompress - 4*4
+        lodsl; mov tmp,eax  // distance back to 1st b_info
                mov ecx,esi
         lodsl; sub ecx,ecx,eax; //str ecx,[fp,#o_reloc]
-        lodsl; add eax,ecx,eax; str eax,[fp,#o_uinit]  // reloc DT_INIT  for step 12
+               sub tmp,esi,tmp  // &b_info
+        lodsl; cmp eax,#0; beq 0f
+               add eax,ecx,eax  // reloc DT_INIT  for step 12
+               str eax,[fp,#o_uinit]
+             0:
         lodsl; add eax,ecx,eax; push eax               // reloc &hatch   for step 10
 o_hatch= -1*4
         lodsl; add edi,ecx,eax  // &l_info; also destination for decompress
-        add esi,edi,#sz_l_info + sz_p_info  // &b_info
+        mov esi,tmp  // &b_info
 
         sub sp,sp,#2*4  // param space: munmap temp pages  step 9
 p_unmap= -3*4

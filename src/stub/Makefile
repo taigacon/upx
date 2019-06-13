@@ -5,7 +5,7 @@
 # cross-assemblers and cross-compilers - please see README.SRC
 # for details.
 #
-# Copyright (C) 1996-2017 Markus Franz Xaver Johannes Oberhumer
+# Copyright (C) 1996-2019 Markus Franz Xaver Johannes Oberhumer
 #
 
 MAKEFLAGS += -rR
@@ -117,8 +117,10 @@ STUBS += i386-win32.pe.h
 STUBS += m68k-atari.tos.h
 STUBS += mips.r3000-linux.elf-entry.h
 STUBS += mips.r3000-linux.elf-fold.h
+STUBS += mips.r3000-linux.shlib-init.h
 STUBS += mipsel.r3000-linux.elf-entry.h
 STUBS += mipsel.r3000-linux.elf-fold.h
+STUBS += mipsel.r3000-linux.shlib-init.h
 STUBS += mipsel.r3000-ps1.h
 STUBS += powerpc-darwin.dylib-entry.h
 STUBS += powerpc-darwin.macho-entry.h
@@ -730,7 +732,6 @@ tmp/arm64-darwin.macho-main.o : $(srcdir)/src/$$T.c
 	$(call tc,gcc) -c -Os $< -o $@
 	$(call tc,f-objstrip,$@)
 
-
 # /***********************************************************************
 # // i086-dos16.com
 # ************************************************************************/
@@ -1200,6 +1201,27 @@ tmp/mips.r3000-linux.elf-main.o : $(srcdir)/src/$$T.c $(srcdir)/src/i386-linux.e
 
 
 # /***********************************************************************
+# // mips.r3000-linux.shlib
+# ************************************************************************/
+
+mips.r3000-linux.shlib%.h : tc_list = mips.r3000-linux.elf default
+mips.r3000-linux.shlib%.h : tc_bfdname = elf32-bigmips
+
+mips.r3000-linux.shlib%.h : $(srcdir)/src/$$T.S
+ifeq (1,1)
+	# info: we really need as-2.17 here
+	$(call tc,pp-as) -D_TARGET_LINUX_ -D__MIPSEB__ $< -o - | $(RTRIM) > tmp/$T.i
+	$(call tc,as) tmp/$T.i -o tmp/$T.bin
+	$(call tc,gpp_mkdep) --mode=c --MMD=$@ --MF=tmp/$T.d $<
+else
+	# info: as-2.16.1 as used by gcc-4.1.1 does _not_ work
+	$(call tc,gcc) -c -D_TARGET_LINUX_ -Wa,-O,-mno-pdr $< -o tmp/$T.bin
+endif
+	$(call tc,f-embed_objinfo,tmp/$T.bin)
+	$(call tc,bin2h-c) tmp/$T.bin $@
+
+
+# /***********************************************************************
 # // mipsel.r3000-linux.elf
 # ************************************************************************/
 
@@ -1235,6 +1257,27 @@ tmp/mipsel.r3000-linux.elf-main.o : $(srcdir)/src/$$T.c $(srcdir)/src/i386-linux
 	    -e 's/	jal[ 	][ 	]*\([^\$$]\)/	bal \1/' < tmp/$T.i > tmp/$T.s
 	$(call tc,gcc) -c -Wa,-O,-mno-pdr tmp/$T.s -o $@
 	$(call tc,f-objstrip,$@)
+
+
+# /***********************************************************************
+# // mipsel.r3000-linux.shlib
+# ************************************************************************/
+
+mipsel.r3000-linux.shlib%.h : tc_list = mipsel.r3000-ps1 default
+mipsel.r3000-linux.shlib%.h : tc_bfdname = elf32-littlemips
+
+mipsel.r3000-linux.shlib%.h : $(srcdir)/src/$$T.S
+ifeq (1,1)
+	# info: we really need as-2.17 here
+	$(call tc,pp-as) -D_TARGET_LINUX_ -D__MIPSEL__ $< -o - | $(RTRIM) > tmp/$T.i
+	$(call tc,as) tmp/$T.i -o tmp/$T.bin
+	$(call tc,gpp_mkdep) --mode=c --MMD=$@ --MF=tmp/$T.d $<
+else
+	# info: as-2.16.1 as used by gcc-4.1.1 does _not_ work
+	$(call tc,gcc) -c -D_TARGET_LINUX_ -Wa,-O,-mno-pdr $< -o tmp/$T.bin
+endif
+	$(call tc,f-embed_objinfo,tmp/$T.bin)
+	$(call tc,bin2h-c) tmp/$T.bin $@
 
 
 # /***********************************************************************
@@ -1484,7 +1527,7 @@ powerpc64-linux.elf%.h : tc_bfdname = elf64-powerpc
 
 tc.powerpc64-linux.elf.gcc  = powerpc64-linux-gcc-4.9.2 -m64 -mbig-endian -nostdinc -MMD -MT $@
 tc.powerpc64-linux.elf.gcc += -fno-exceptions -fno-asynchronous-unwind-tables -fno-stack-protector
-tc.powerpc64-linux.elf.gcc += -mno-longcall
+tc.powerpc64-linux.elf.gcc += -mno-longcall -mno-toc
 tc.powerpc64-linux.elf.gcc += -Wall -W -Wcast-align -Wcast-qual -Wstrict-prototypes -Wwrite-strings -Werror
 
 tc.powerpc64-linux.elf.ld      = powerpc64-linux-ld-2.25 -b $(tc_bfdname)

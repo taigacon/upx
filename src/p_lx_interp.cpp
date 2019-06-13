@@ -2,9 +2,9 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2017 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2017 Laszlo Molnar
-   Copyright (C) 2000-2017 John F. Reiser
+   Copyright (C) 1996-2019 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2019 Laszlo Molnar
+   Copyright (C) 2000-2019 John F. Reiser
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -82,7 +82,7 @@ void PackLinuxElf32x86interp::pack1(OutputFile *fo, Filter &)
     assert(ehdri.e_phoff == sizeof(Elf32_Ehdr));  // checked by canPack()
     sz_phdrs = ehdri.e_phnum * ehdri.e_phentsize;
 
-    phdri = new Elf32_Phdr[(unsigned)ehdri.e_phnum];
+    phdri = New(Elf32_Phdr, ehdri.e_phnum);
     fi->seek(ehdri.e_phoff, SEEK_SET);
     fi->readx(phdri, sz_phdrs);
 
@@ -135,7 +135,7 @@ int PackLinuxElf32x86interp::pack2(OutputFile *fo, Filter &ft)
 #undef PAGE_MASK
 #define PAGE_MASK (~0u<<12)
 
-void PackLinuxElf32x86interp::pack3(OutputFile *fo, Filter &/*ft*/)
+off_t PackLinuxElf32x86interp::pack3(OutputFile *fo, Filter &/*ft*/)
 {
     unsigned base = getbase(phdri, ehdri.e_phnum);
     unsigned sz = PAGE_MASK & (~PAGE_MASK + elfout.phdr[0].p_filesz);
@@ -191,6 +191,7 @@ void PackLinuxElf32x86interp::pack3(OutputFile *fo, Filter &/*ft*/)
     else {
         updateLoader(fo);
     }
+    return fo->getBytesWritten();
 }
 
 

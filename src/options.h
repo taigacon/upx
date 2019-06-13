@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2017 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2017 Laszlo Molnar
+   Copyright (C) 1996-2019 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2019 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -147,6 +147,8 @@ struct options_t {
         unsigned char osabi0;       // replacement if 0==.e_ident[EI_OSABI]
         bool preserve_build_id;     // copy the build-id to the compressed binary
         bool android_shlib;         // keep some ElfXX_Shdr for dlopen()
+        bool force_pie;             // choose DF_1_PIE instead of is_shlib
+        bool assume_execute_permission;  // do not check .st_mode for S_IXUSR
     } o_unix;
     struct {
         bool le;

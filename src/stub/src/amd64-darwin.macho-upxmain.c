@@ -2,9 +2,9 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2017 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2017 Laszlo Molnar
-   Copyright (C) 2000-2017 John F. Reiser
+   Copyright (C) 1996-2019 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2019 Laszlo Molnar
+   Copyright (C) 2000-2019 John F. Reiser
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -29,10 +29,12 @@
    <jreiser@users.sourceforge.net>
  */
 
-#include <stdio.h>
-#include <stdlib.h>
+#define __WORDSIZE 64
 #include "include/darwin.h"
 
+typedef unsigned char * Addr;
+
+#define SIMULATE_ON_LINUX_EABI4 0
 #ifndef DEBUG  /*{*/
 #define DEBUG 0
 #endif  /*}*/
@@ -184,16 +186,16 @@ done:
 
 typedef struct {
     size_t size;  // must be first to match size[0] uncompressed size
-    void *buf;
+    Addr buf;
 } Extent;
 
 DEBUG_STRCON(STR_xread, "xread %%p(%%x %%p) %%p %%x\\n")
 DEBUG_STRCON(STR_xreadfail, "xreadfail %%p(%%x %%p) %%p %%x\\n")
 
 static void
-xread(Extent *x, void *buf, size_t count)
+xread(Extent *x, Addr buf, size_t count)
 {
-    unsigned char *p=x->buf, *q=buf;
+    Addr p=x->buf, q=buf;
     size_t j;
     DPRINTF((STR_xread(), x, x->size, x->buf, buf, count));
     if (x->size < count) {
@@ -285,7 +287,7 @@ unpackExtent(
         //   compressible and is stored in its uncompressed form.
 
         // Read and check block sizes.
-        xread(xi, (unsigned char *)&h, sizeof(h));
+        xread(xi, (Addr)&h, sizeof(h));
         if (h.sz_unc == 0) {                     // uncompressed size 0 -> EOF
             if (h.sz_cpr != UPX_MAGIC_LE32)      // h.sz_cpr must be h->magic
                 err_exit(2);
@@ -328,7 +330,7 @@ ERR_LAB
 }
 
 static void
-upx_bzero(unsigned char *p, size_t len)
+upx_bzero(Addr p, size_t len)
 {
     if (len) do {
         *p++= 0;
@@ -484,8 +486,8 @@ typedef union {
 #define MAP_ANON_FD    -1
 #define MAP_FAILED ((void *) -1)
 
-extern void *mmap(void *, size_t, unsigned, unsigned, int, off_t);
-ssize_t pread(int, void *, size_t, off_t);
+extern void *mmap(void *, size_t, unsigned, unsigned, int, off_t_upx_stub);
+ssize_t pread(int, void *, size_t, off_t_upx_stub);
 extern void bswap(void *, unsigned);
 
 DEBUG_STRCON(STR_mmap,
@@ -496,7 +498,7 @@ DEBUG_STRCON(STR_do_xmap,
 static uint64_t  // entry address
 do_xmap(
     Mach_header64 const *const mhdr,
-    off_t const fat_offset,
+    off_t_upx_stub const fat_offset,
     Extent *const xi,
     int const fdi,
     Mach_header64 **mhdrpp,
@@ -514,12 +516,18 @@ do_xmap(
         fdi, mhdr, xi, (xi? xi->size: 0), (xi? xi->buf: 0), f_unf));
 
     for ( j=0; j < mhdr->ncmds; ++j,
-        (sc = (Mach_segment_command const *)(sc->cmdsize + (void const *)sc))
-    ) if (LC_SEGMENT_64==sc->cmd && sc->vmsize!=0) {
+        (sc = (Mach_segment_command const *)(sc->cmdsize + (unsigned char const *)sc))
+    ) if (LC_SEGMENT_64==sc->cmd && sc->vmsize==0) {
+            // Typical __DWARF info segment for 'rust'
+            struct b_info h;
+            xread(xi, (unsigned char *)&h, sizeof(h));
+            DPRINTF("    0==.vmsize; skipping %%x\\n", h.sz_cpr);
+            xi->buf += h.sz_cpr;
+    else if (LC_SEGMENT_64==sc->cmd && sc->vmsize!=0) {
         Extent xo;
         size_t mlen = xo.size = sc->filesize;
-        unsigned char  *addr = xo.buf  = base + (unsigned char *)sc->vmaddr;
-        unsigned char *haddr =     sc->vmsize +                        addr;
+        Addr  addr = xo.buf  = base + (Addr)sc->vmaddr;
+        Addr haddr =     sc->vmsize +             addr;
         size_t frag = (int)(uint64_t)addr &~ PAGE_MASK;
         addr -= frag;
         mlen += frag;
@@ -531,10 +539,10 @@ do_xmap(
             unsigned const flags = (addr ? MAP_FIXED : 0) | MAP_PRIVATE |
                         ((xi || 0==sc->filesize) ? MAP_ANON : 0);
             int const fdm = ((0==sc->filesize) ? MAP_ANON_FD : fdi);
-            off_t const offset = sc->fileoff + fat_offset;
+            off_t_upx_stub const offset = sc->fileoff + fat_offset;
 
             DPRINTF((STR_mmap(),       addr, mlen3, prot, flags, fdm, offset));
-            unsigned char *mapa = mmap(addr, mlen3, prot, flags, fdm, offset);
+            Addr mapa = (Addr)mmap(addr, mlen3, prot, flags, fdm, offset);
             if (MAP_FAILED == mapa) {
                 err_exit(8);
             }
@@ -559,7 +567,7 @@ ERR_LAB
         }
         addr += mlen + frag;  /* page boundary on hi end */
         if (
-#if defined(SIMULATE_ON_DEBIAN_EABI4)  /*{*/
+#if SIMULATE_ON_LINUX_EABI4  /*{*/
             0!=addr &&
 #endif  /*}*/
                         addr < haddr) { // need pages for .bss
@@ -593,7 +601,7 @@ ERR_LAB
     return entry;
 }
 
-static off_t
+static off_t_upx_stub
 fat_find(Fat_header *fh) // *fh suffers bswap()
 {
     Fat_arch *fa = (Fat_arch *)(1+ fh);
@@ -628,11 +636,11 @@ upx_main(
 )
 {
     uint64_t entry;
-    off_t fat_offset = 0;
+    off_t_upx_stub fat_offset = 0;
     Extent xi, xo, xi0;
-    xi.buf  = CONST_CAST(unsigned char *, 1+ (struct p_info const *)(1+ li));  // &b_info
+    xi.buf  = CONST_CAST(Addr, 1+ (struct p_info const *)(1+ li));  // &b_info
     xi.size = sz_compressed - (sizeof(struct l_info) + sizeof(struct p_info));
-    xo.buf  = (unsigned char *)mhdr;
+    xo.buf  = (Addr)mhdr;
     xo.size = ((struct b_info const *)(void const *)xi.buf)->sz_unc;
     xi0 = xi;
 
@@ -650,7 +658,7 @@ upx_main(
     unsigned j;
 
     for (j=0; j < mhdr->ncmds; ++j,
-        (lc = (Mach_load_command const *)(lc->cmdsize + (void const *)lc))
+        (lc = (Mach_load_command const *)(lc->cmdsize + (unsigned char const *)lc))
     ) if (LC_LOAD_DYLINKER==lc->cmd) {
         char const *const dyld_name = ((Mach_lc_str const *)(1+ lc))->offset +
             (char const *)lc;
@@ -686,67 +694,6 @@ ERR_LAB
   }
 
     return entry;
-}
-
-typedef struct {
-    uint32_t cmd;
-    uint32_t cmdsize;
-    uint32_t data[2];  // because cmdsize >= 16
-} Mach_command;  // generic prefix
-
-//
-// Build on Mac OS X: (where gcc is really clang)
-// gcc -o amd64-darwin.macho-upxmain.exe \
-//    -Os -fPIC -fno-stack-protector \
-//    amd64-darwin.macho-upxmain.c \
-//    amd64-darwin.macho-upxsubr.S \
-//    -Wl,-pagezero_size,0xf0000000 \
-//    -Wl,-no_pie \
-//    -Wl,-no_uuid \
-//    -Wl,-no_function_starts \
-//    -Wl,-bind_at_load \
-//    -Wl,-headerpad,0x400 \
-//
-//#    -Wl,-unexported_symbols_list unexport-upxload.txt \
-//# strip -u -r amd64-darwin.macho-upxmain.exe
-
-int
-main(int argc, char *argv[])
-{
-    // Entry via JMP (with no parameters) instead of CALL
-    asm("movl 1*8(%%rbp),%0; leaq 2*8(%%rbp),%1" : "=r" (argc), "=r" (argv) : );
-
-    Mach_header64 const *mhdr0 = (Mach_header64 const *)((~0ul<<16) & (unsigned long)&main);
-    Mach_command const *ptr = (Mach_command const *)(1+ mhdr0);
-    f_unfilter *f_unf;
-    f_expand *f_exp;
-    char *payload;
-    size_t paysize;
-
-    unsigned j;
-    for (j=0; j < mhdr0->ncmds; ++j,
-            ptr = (Mach_command const *)(ptr->cmdsize + (char const *)ptr))
-    if (LC_SEGMENT_64==ptr->cmd) {
-        Mach_segment_command const *const seg = (Mach_segment_command const *)ptr;
-        // Compare 8 characters
-        if (*(long const *)(&"__LINKEDIT"[2]) == *(long const *)(&seg->segname[2])) {
-            f_unf = (f_unfilter *)(sizeof(unsigned short)             + seg->vmaddr);
-            f_exp = (f_expand *)(*(unsigned short const *)seg->vmaddr + seg->vmaddr);
-            unsigned const *q = (unsigned const *)seg->vmaddr;
-            while (!(paysize = *--q)) /*empty*/ ;
-            payload = (char *)(-paysize + (char const *)q);
-            break;
-        }
-    }
-    char mhdr[16384];
-    uint64_t entry = upx_main((struct l_info const *)payload, paysize,
-        (Mach_header64 *)mhdr, sizeof(mhdr),
-        f_exp, f_unf, (Mach_header64 **)&argv[-2]);
-
-    munmap(payload, paysize);  // leaving __LINKEDIT
-    argv[-1] = (char *)(long)argc;
-    asm("lea -2*8(%1),%%rsp; jmp *%0" : : "r" (entry), "r" (argv));
-    return 0;
 }
 
 /* vim:set ts=4 sw=4 et: */

@@ -2,7 +2,7 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 2004-2017 John Reiser
+   Copyright (C) 2004-2019 John Reiser
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -93,11 +93,13 @@ static const unsigned lc_segment[2] = {
     //Mach_command::LC_SEGMENT_64
 };
 
+#if 0 // NOT USED
 static const unsigned lc_routines[2] = {
     0x11, 0x1a
     //Mach_command::LC_ROUTINES,
     //Mach_command::LC_ROUTINES_64
 };
+#endif
 
 template <class T>
 PackMachBase<T>::PackMachBase(InputFile *f, unsigned cputype, unsigned filetype,
@@ -150,14 +152,9 @@ const int *PackMachBase<T>::getCompressionMethods(int method, int level) const
 
 const int *PackMachARMEL::getCompressionMethods(int method, int level) const
 {
+    // Un-aligned fetch does not work on 32-bit ARM, so use 8-bit methods
     return Packer::getDefaultCompressionMethods_8(method, level);
 }
-
-const int *PackMachARM64EL::getCompressionMethods(int method, int level) const
-{
-    return Packer::getDefaultCompressionMethods_8(method, level);
-}
-
 
 PackMachPPC32::PackMachPPC32(InputFile *f) : super(f, Mach_header::CPU_TYPE_POWERPC,
         Mach_header::MH_EXECUTE, Mach_thread_command::PPC_THREAD_STATE,
@@ -208,7 +205,7 @@ PackMachARMEL::PackMachARMEL(InputFile *f) : super(f, Mach_header::CPU_TYPE_ARM,
         sizeof(Mach_ARM_thread_state)>>2, sizeof(threado))
 { }
 
-PackMachARM64EL::PackMachARM64EL(InputFile *f) : super(f, Mach_header::CPU_TYPE_ARM,
+PackMachARM64EL::PackMachARM64EL(InputFile *f) : super(f, Mach_header::CPU_TYPE_ARM64,
         Mach_header::MH_EXECUTE, (unsigned)Mach_thread_command::ARM_THREAD_STATE,
         sizeof(Mach_ARM64_thread_state)>>2, sizeof(threado))
 { }
@@ -221,7 +218,7 @@ int const *PackMachARMEL::getFilters() const
 
 int const *PackMachARM64EL::getFilters() const
 {
-    static const int filters[] = { 0x51, FT_END };
+    static const int filters[] = { 0x52, FT_END };
     return filters;
 }
 
@@ -272,93 +269,10 @@ PackMachBase<T>::addStubEntrySections(Filter const *)
     addLoader("ELFMAINY,IDENTSTR,+40,ELFMAINZ,FOLDEXEC", NULL);
 }
 
-void PackMachI386::addStubEntrySections(Filter const *ft)
+void PackMachI386::addStubEntrySections(Filter const * /*ft*/)
 {
-    int const n_mru = ft->n_mru;  // FIXME: belongs to filter? packerf?
-
-    if (Mach_header::MH_EXECUTE == my_filetype) {
-        addLoader("I386BXX0", NULL);  // .word offset to f_exp
-    }
-    else {
-        addLoader("LEXEC000", NULL);  // entry to stub
-    }
-    if (ft->id) { // decompr, unfilter are separate
-        if (Mach_header::MH_EXECUTE != my_filetype) {
-            addLoader("LXUNF000", NULL);  // 2-byte jump to f_exp
-        }
-        addLoader("LXUNF002", NULL);  // entry to f_unf
-        // prolog to f_unf
-        if (0x80==(ft->id & 0xF0)) {
-            if (256==n_mru) {
-                addLoader("MRUBYTE0", NULL);
-            }
-            else if (n_mru) {
-                addLoader("LXMRU005", NULL);
-            }
-            if (n_mru) {
-                addLoader("LXMRU006", NULL);
-            }
-            else {
-                addLoader("LXMRU007", NULL);
-            }
-        }
-        else {
-            if (0x40==(ft->id & 0xF0)) {
-                addLoader("LXUNF008", NULL);
-            }
-        }
-        if (Mach_header::MH_EXECUTE == my_filetype) {
-            addFilter32(ft->id);  // f_unf body
-            if (0x80==(ft->id & 0xF0)) {
-                if (0==n_mru) {
-                    addLoader("LXMRU058", NULL);
-                }
-            }
-            addLoader("LXUNF035", NULL);  // epilog to f_unf
-        }
-        else { // MH_DYLIB
-            addLoader("LXUNF010", NULL);  // jmp32 lxunf0  # to rest of f_unf
-            if (n_mru) {
-                addLoader("LEXEC009", NULL);  // empty (unify source with other cases)
-            }
-        }
-    }
-    if (Mach_header::MH_EXECUTE == my_filetype) {
-        addLoader("I386BXX1", NULL);
-    }
-    addLoader("LEXEC010", NULL);  // prolog to f_exp
-    addLoader(getDecompressorSections(), NULL);
-    addLoader("LEXEC015", NULL);  // epilog to f_exp
-    if (ft->id) {
-        if (Mach_header::MH_EXECUTE != my_filetype) {
-            if (0x80!=(ft->id & 0xF0)) {
-                addLoader("LXUNF042", NULL);  // lxunf0:
-            }
-            addFilter32(ft->id);  // body of f_unf
-            if (0x80==(ft->id & 0xF0)) {
-                if (0==n_mru) {
-                    addLoader("LXMRU058", NULL);
-                }
-            }
-            addLoader("LXUNF035", NULL);  // epilog to f_unf
-        }
-    }
-    else {
-        addLoader("LEXEC017", NULL);  // epilog to f_exp
-    }
-
-    addLoader("IDENTSTR", NULL);
-    addLoader("LEXEC020", NULL);
-    addLoader("FOLDEXEC", NULL);
-}
-
-void PackMachAMD64::addStubEntrySections(Filter const * /*ft*/)
-{
-    if (my_filetype==Mach_header::MH_DYLIB) {
-        addLoader("MACHMAINX", NULL);
-    }
-    else {
-        addLoader("AMD64BXX", NULL);
+    addLoader("MACHMAINX", NULL);  // different for MY_DYLIB vs MH_EXECUTE
+    if (my_filetype==Mach_header::MH_EXECUTE) {
         addLoader("MACH_UNC", NULL);
     }
    //addLoader(getDecompressorSections(), NULL);
@@ -370,10 +284,25 @@ void PackMachAMD64::addStubEntrySections(Filter const * /*ft*/)
         : NULL), NULL);
     if (hasLoaderSection("CFLUSH"))
         addLoader("CFLUSH");
-    addLoader("MACHMAINY,IDENTSTR,+40,MACHMAINZ", NULL);
-    if (my_filetype!=Mach_header::MH_EXECUTE) {
-        addLoader("FOLDEXEC", NULL);
+    addLoader("MACHMAINY,IDENTSTR,+40,MACHMAINZ,FOLDEXEC", NULL);
+}
+
+void PackMachAMD64::addStubEntrySections(Filter const * /*ft*/)
+{
+    addLoader("MACHMAINX", NULL);  // different for MY_DYLIB vs MH_EXECUTE
+    if (my_filetype==Mach_header::MH_EXECUTE) {
+        addLoader("MACH_UNC", NULL);
     }
+   //addLoader(getDecompressorSections(), NULL);
+    addLoader(
+        ( M_IS_NRV2E(ph.method) ? "NRV_HEAD,NRV2E,NRV_TAIL"
+        : M_IS_NRV2D(ph.method) ? "NRV_HEAD,NRV2D,NRV_TAIL"
+        : M_IS_NRV2B(ph.method) ? "NRV_HEAD,NRV2B,NRV_TAIL"
+        : M_IS_LZMA(ph.method)  ? "LZMA_ELF00,LZMA_DEC20,LZMA_DEC30"
+        : NULL), NULL);
+    if (hasLoaderSection("CFLUSH"))
+        addLoader("CFLUSH");
+    addLoader("MACHMAINY,IDENTSTR,+40,MACHMAINZ,FOLDEXEC", NULL);
 }
 
 void PackMachPPC32::addStubEntrySections(Filter const * /*ft*/)
@@ -459,7 +388,7 @@ PackMachBase<T>::buildMachLoader(
   }
     unsigned char const *const uncLoader = fold_hdrlen + fold;
 
-    unsigned char *const cprLoader = new unsigned char[sizeof(h) + h.sz_unc];
+    unsigned char *const cprLoader = New(unsigned char, sizeof(h) + h.sz_unc);
   if (0 < szfold) {
     unsigned sz_cpr = 0;
     int r = upx_compress(uncLoader, h.sz_unc, sizeof(h) + cprLoader, &sz_cpr,
@@ -526,19 +455,18 @@ PackMachBase<T>::compare_segment_command(void const *const aa, void const *const
            if (xa < xb)        return -1;  // LC_SEGMENT first
            if (xa > xb)        return  1;
            if (0 != xa)        return  0;  // not LC_SEGMENT
-    // Beware 0==.vmsize (some MacOSX __DWARF debug info: a "comment")
-    if (a->vmsize!=0 && b->vmsize!=0) {
-        if (a->vmaddr < b->vmaddr) return -1;  // ascending by .vmaddr
-        if (a->vmaddr > b->vmaddr) return  1;
-    }
-    else { // 0==.vmsize goes last, except ordered by fileoff
-        if (a->vmsize)         return -1;  // 'a' is first
-        if (b->vmsize)         return  1;  // 'a' is last
-        if (a->fileoff < b->fileoff)
+    // Ascending by .fileoff so that find_SEGMENT_gap works
+    if (a->fileoff < b->fileoff)
                                return -1;
-        if (a->fileoff > b->fileoff)
+    if (a->fileoff > b->fileoff)
                                return  1;
-    }
+    // Ascending by .vmaddr
+    if (a->vmaddr < b->vmaddr) return -1;
+    if (a->vmaddr > b->vmaddr) return  1;
+    // Descending by .vmsize
+    if (a->vmsize)             return -1;  // 'a' is first
+    if (b->vmsize)             return  1;  // 'a' is last
+    // What could remain?
                                return  0;
 }
 
@@ -560,28 +488,24 @@ PackMachBase<T>::compare_segment_command(void const *const aa, void const *const
 #define PAGE_MASK64 (~(upx_uint64_t)0<<12)
 #define PAGE_SIZE64 ((upx_uint64_t)0-PAGE_MASK64)
 
+unsigned const blankLINK = 16;  // size of our empty __LINK segment
+// Note: "readelf --segments"  ==>  "otool -hl" or "otool -hlv" etc. (Xcode on MacOS)
+
 template <class T>
 void PackMachBase<T>::pack4(OutputFile *fo, Filter &ft)  // append PackHeader
 {
     // offset of p_info in compressed file
-    overlay_offset = secTEXT.addr + sizeof(linfo);
+    overlay_offset = secTEXT.offset + sizeof(linfo);
     super::pack4(fo, ft);
 
     if (Mach_header::MH_EXECUTE == my_filetype) {
-        upx_uint64_t const zero = 0;
-        unsigned const len = fo->getBytesWritten();
-        fo->write(&zero, 7& (0u-len));
+        unsigned len = fo->getBytesWritten();
+        char page[~PAGE_MASK]; memset(page, 0, sizeof(page));
+        fo->write(page, ~PAGE_MASK & (0u - len));
+        len +=          ~PAGE_MASK & (0u - len) ;
 
-        unsigned const eofcmpr = fo->getBytesWritten();
-        if (Mach_header::CPU_TYPE_X86_64 == my_cputype) {
-            // sneak in a little below 4GiB
-            segTEXT.vmaddr = segZERO.vmaddr + segZERO.vmsize;
-        }
-        else {
-            // ::pack1 set segTEXT.vmaddr to be va_hi: no conflict
-        }
-        segTEXT.filesize = eofcmpr;
-        segTEXT.vmsize  += eofcmpr;  // utilize GAP + NO_LAP + sz_unc - sz_cpr
+        segTEXT.filesize = len;
+        segTEXT.vmsize   = len;  // FIXME?  utilize GAP + NO_LAP + sz_unc - sz_cpr
         secTEXT.offset = overlay_offset - sizeof(linfo);
         secTEXT.addr = segTEXT.vmaddr   + secTEXT.offset;
         secTEXT.size = segTEXT.filesize - secTEXT.offset;
@@ -591,7 +515,13 @@ void PackMachBase<T>::pack4(OutputFile *fo, Filter &ft)  // append PackHeader
         }
         secXHDR.addr += secXHDR.offset;
         unsigned offLINK = segLINK.fileoff;
-        segLINK.vmaddr = segTEXT.vmaddr + offLINK;
+
+
+        segLINK.fileoff = len;  // must be in the file
+        segLINK.vmaddr =  len + segTEXT.vmaddr;
+        fo->write(page, blankLINK); len += blankLINK;
+        segLINK.vmsize = PAGE_SIZE;
+        segLINK.filesize = blankLINK;
 
         // Get a writeable copy of the stub to make editing easier.
         ByteArray(upxstub, sz_stub_main);
@@ -599,10 +529,8 @@ void PackMachBase<T>::pack4(OutputFile *fo, Filter &ft)  // append PackHeader
 
         Mach_header *const mhp = (Mach_header *)upxstub;
         mhp->cpusubtype = my_cpusubtype;
+        mhp->flags = mhdro.flags;
         char *tail = (char *)(1+ mhp);
-        Mach_segment_command *segtxt = 0;  // in temp for output
-        Mach_section_command *sectxt = 0;  // in temp for output
-        unsigned txt_addr = 0;
         char *const lcp_end = mhdro.sizeofcmds + tail;
         Mach_command *lcp = (Mach_command *)(1+ mhp);
         Mach_command *lcp_next;
@@ -610,7 +538,6 @@ void PackMachBase<T>::pack4(OutputFile *fo, Filter &ft)  // append PackHeader
         //unsigned cmdsize = mhdro.sizeofcmds;
         unsigned delta = 0;
 
-    unsigned va_next = 0;
     for (unsigned j = 0; j < ncmds; ++j) {
         unsigned skip = 0;
         unsigned sz_cmd = lcp->cmdsize;
@@ -621,93 +548,30 @@ void PackMachBase<T>::pack4(OutputFile *fo, Filter &ft)  // append PackHeader
         case Mach_command::LC_SEGMENT_64: {
             Mach_segment_command *const segptr = (Mach_segment_command *)lcp;
             if (!strcmp("__PAGEZERO", segptr->segname)) {
-                if (pagezero_vmsize < 0xF0000000ull) {
-                    segptr->vmsize = pagezero_vmsize;
-                }
+                segptr->vmsize = pagezero_vmsize;
             }
             if (!strcmp("__TEXT", segptr->segname)) {
-                segtxt = segptr;  // remember base for appending
-                sectxt = (Mach_section_command *)(1+ segptr);
-                txt_addr = sectxt->addr;
-                // Collapse into 1 section by appending onto the first section.
-                unsigned off_hi = sectxt->size + sectxt->offset;
-                Mach_section_command const *scpk = 1+ sectxt;
-                for (unsigned k = 1; k < segptr->nsects; ++scpk, ++k) {
-                    if (off_hi == scpk->offset || scpk->size==0) {
-                        off_hi += scpk->size;
-                        sectxt->size += scpk->size;
-                    }
-                    else {
-                        if (!(Mach_header::CPU_TYPE_POWERPC == my_cputype
-                                && 12==(unsigned)scpk->size
-                                && !strcmp("__cstring", (char const *)&scpk->sectname))) {
-                            printWarn(fi->getName(), "Unexpected .text section %s  size=%u\n",
-                             (char const *)&scpk->sectname, (unsigned)scpk->size);
-                        }
-                        // Assume the maximum size: to end of the page.
-                        sectxt->size = (segptr->vmsize + segptr->vmaddr) - sectxt->addr;
-                        // Try to stop the cascade of errors.
-                        off_hi = scpk->size + scpk->offset;
-                        break;
-                    }
-                }
-                int const d = (-1+ segptr->nsects) * sizeof(secTEXT);
-                if (0 < d) {
-                    segptr->nsects = 1;
-                    sz_cmd -= d;
-                    segptr->cmdsize -= d;
-                    mhp->sizeofcmds -= d;
-                }
-                if (Mach_header::CPU_TYPE_I386 == my_cputype
-                ||  Mach_header::CPU_TYPE_POWERPC == my_cputype ) {
-                    // Avoid overlap by moving to va_hi.
-                    upx_uint64_t const delt2 = segTEXT.vmaddr - segptr->vmaddr;
-                    segptr->vmaddr += delt2;
-                    sectxt->addr   += delt2;
-                }
-                memcpy(&segTEXT, segptr, sizeof(segTEXT));
-                memcpy(&secTEXT, sectxt, sizeof(secTEXT));
-                va_next  = segTEXT.vmsize + segTEXT.vmaddr;
-                break;
-            }
-            if (!strcmp("__DATA", segptr->segname) && !segptr->vmsize) {
-                // __DATA with no pages.
-                // Use the space as Mach_segment_command for new segXHDR, or elide.
-                segXHDR.cmdsize = sizeof(segXHDR);  // no need for sections
-                segXHDR.vmaddr = segTEXT.vmsize + segTEXT.vmaddr;  // XXX FIXME
-                segXHDR.vmsize = offLINK - segTEXT.vmsize;
-                segXHDR.fileoff = segTEXT.filesize + segTEXT.fileoff;  // XXX FIXME: assumes no __DATA in stub
-                segXHDR.filesize = offLINK - segTEXT.filesize;  // XXX FIXME: assumes no __DATA in stub;
-                segXHDR.maxprot = Mach_command::VM_PROT_READ;
-                segXHDR.nsects = 0;
-                if (!segtxt) { // replace __DATA with segXHDR
-                    va_next  = segXHDR.vmsize + segXHDR.vmaddr;
-                    memcpy(tail, &segXHDR, sizeof(segXHDR));
-                    tail += sizeof(segXHDR);
-                    goto next;
-                }
-                else { // append to .text
-                    segtxt->vmsize = offLINK;
-                    segtxt->filesize = offLINK;
-                    sectxt->size = offLINK - (~PAGE_MASK & sectxt->offset);
-                    va_next  = segtxt->vmsize + segtxt->vmaddr;
-                    skip = 1;
-                }
+                sz_cmd = (segTEXT.nsects * sizeof(secTEXT)) + sizeof(segTEXT);
+                mhp->sizeofcmds += sizeof(secTEXT) * (1 - segptr->nsects);
+                memcpy(tail, &segTEXT, sz_cmd); tail += sz_cmd;
+                goto next;
             }
             if (!strcmp("__LINKEDIT", segptr->segname)) {
-                segLINK.initprot = Mach_command::VM_PROT_READ
-                                 | Mach_command::VM_PROT_EXECUTE;
+                segLINK.initprot = Mach_command::VM_PROT_READ;
                 delta = offLINK - segptr->fileoff;  // relocation constant
 
-                // Update the __LINKEDIT header
-                segLINK.filesize = eofcmpr - offLINK;
-                segLINK.vmsize = PAGE_MASK64 & (~PAGE_MASK64 + eofcmpr - offLINK);
-                if (Mach_header::CPU_TYPE_I386 == my_cputype) {
-                    segLINK.fileoff = offLINK;  // otherwise written by ::pack3
+                sz_cmd = sizeof(segLINK);
+                if (Mach_header::CPU_TYPE_I386==mhdri.cputype
+                &&  Mach_header::MH_EXECUTE==mhdri.filetype) {
+                    segLINK.maxprot = 0
+                        | Mach_command::VM_PROT_EXECUTE
+                        | Mach_command::VM_PROT_WRITE
+                        | Mach_command::VM_PROT_READ;
+                    segLINK.initprot = 0
+                        | Mach_command::VM_PROT_WRITE
+                        | Mach_command::VM_PROT_READ;
                 }
-                segLINK.vmaddr = va_next;
-                memcpy(tail, &segLINK, sizeof(segLINK));
-                tail += sizeof(segLINK);
+                memcpy(tail, &segLINK, sz_cmd); tail += sz_cmd;
                 goto next;
             }
         } break;
@@ -757,8 +621,6 @@ void PackMachBase<T>::pack4(OutputFile *fo, Filter &ft)  // append PackHeader
             skip = 1;
         } break;
         case Mach_command::LC_UNIXTHREAD: { // pre-LC_MAIN
-            threado_setPC(secTEXT.addr +
-                (threadc_getPC(lcp) - txt_addr));
             skip = 1;
         } break;
         case Mach_command::LC_LOAD_DYLIB: {
@@ -824,7 +686,8 @@ next:
     }
 }
 
-// At 2013-02-03 part of the source for codesign was //    http://opensource.apple.com/source/cctools/cctools-836/libstuff/ofile.c
+// At 2013-02-03 part of the source for codesign was:
+//    http://opensource.apple.com/source/cctools/cctools-836/libstuff/ofile.c
 
 template <class T>
 void PackMachBase<T>::pack4dylib(  // append PackHeader
@@ -914,7 +777,7 @@ void PackMachBase<T>::pack4dylib(  // append PackHeader
         {
             if (is_text) {
                 slide = 0;
-                segTEXT.filesize = fo->getBytesWritten();
+                segTEXT.vmsize = segTEXT.filesize = fo->getBytesWritten();
                 segTEXT.maxprot  |= Mach_command::VM_PROT_WRITE;
                 segcmdtmp = segTEXT;
                 opos = o_end_txt = segcmdtmp.filesize + segcmdtmp.fileoff;
@@ -1013,7 +876,7 @@ void PackDylibPPC64LE::pack4(OutputFile *fo, Filter &ft)  // append PackHeader
 }
 
 template <class T>
-void PackMachBase<T>::pack3(OutputFile *fo, Filter &ft)  // append loader
+off_t PackMachBase<T>::pack3(OutputFile *fo, Filter &ft)  // append loader
 {
     TE32 disp;
     upx_uint64_t const zero = 0;
@@ -1021,29 +884,26 @@ void PackMachBase<T>::pack3(OutputFile *fo, Filter &ft)  // append loader
     fo->write(&zero, 3& (0u-len));
     len += (3& (0u-len));
 
-    disp = len - sz_mach_headers;
+    disp = len;  // backward offset to Mach_header
     fo->write(&disp, sizeof(disp));
     len += sizeof(disp);
 
-    if (Mach_header::MH_DYLIB != my_filetype) {
-        // Why does MH_EXECUTE do this?
-        char page[~PAGE_MASK]; memset(page, 0, sizeof(page));
-        fo->write(page, ~PAGE_MASK & (0u - len));
-        len += ~PAGE_MASK & (0u - len);
-        segLINK.fileoff = len;
+    if (my_filetype!=Mach_header::MH_DYLIB) {
+        disp = len - sz_mach_headers;  // backward offset to start of compressed data
+        fo->write(&disp, sizeof(disp));
+        len += sizeof(disp);
     }
+    segTEXT.vmsize = segTEXT.filesize;
+    threado_setPC(entryVMA= len + segTEXT.vmaddr);
 
-    threado_setPC(entryVMA= len + segTEXT.vmaddr);  /* entry address */
-    super::pack3(fo, ft);
-    fo->write(&zero, 7& (0u-len));  // FIXME: align(4) ?
-    segTEXT.vmsize = len = fo->getBytesWritten();
+    return super::pack3(fo, ft);
 }
 
-void PackDylibI386::pack3(OutputFile *fo, Filter &ft)  // append loader
+off_t PackDylibI386::pack3(OutputFile *fo, Filter &ft)  // append loader
 {
     TE32 disp;
     upx_uint32_t const zero = 0;
-    unsigned len = fo->getBytesWritten();
+    off_t len = fo->getBytesWritten();
     fo->write(&zero, 3& (0u-len));
     len += (3& (0u-len)) + 4*sizeof(disp);
 
@@ -1058,21 +918,18 @@ void PackDylibI386::pack3(OutputFile *fo, Filter &ft)  // append loader
 
     unsigned const save_sz_mach_headers(sz_mach_headers);
     sz_mach_headers = 0;
-    super::pack3(fo, ft);
+    len = super::pack3(fo, ft);
     sz_mach_headers = save_sz_mach_headers;
+    return len;
 }
 
-void PackDylibAMD64::pack3(OutputFile *fo, Filter &ft)  // append loader
+off_t PackDylibAMD64::pack3(OutputFile *fo, Filter &ft)  // append loader
 {
     TE32 disp;
-    TE64 disp64;
     upx_uint64_t const zero = 0;
-    unsigned len = fo->getBytesWritten();
-    fo->write(&zero, 7& (0u-len));
-    len += (7& (0u-len)) + sizeof(disp64) + 4*sizeof(disp);
-
-    disp64= len;
-    fo->write(&disp64, sizeof(disp64));  // __mod_init_func
+    off_t len = fo->getBytesWritten();
+    fo->write(&zero, 3& (0u-len));
+    len += (3& (0u-len)) + 3*sizeof(disp);
 
     disp = prev_mod_init_func;
     fo->write(&disp, sizeof(disp));  // user .init_address
@@ -1085,15 +942,16 @@ void PackDylibAMD64::pack3(OutputFile *fo, Filter &ft)  // append loader
 
     unsigned const save_sz_mach_headers(sz_mach_headers);
     sz_mach_headers = 0;
-    super::pack3(fo, ft);
+    len = super::pack3(fo, ft);
     sz_mach_headers = save_sz_mach_headers;
+    return len;
 }
 
-void PackDylibPPC32::pack3(OutputFile *fo, Filter &ft)  // append loader
+off_t PackDylibPPC32::pack3(OutputFile *fo, Filter &ft)  // append loader
 {
     TE32 disp;
     upx_uint32_t const zero = 0;
-    unsigned len = fo->getBytesWritten();
+    off_t len = fo->getBytesWritten();
     fo->write(&zero, 3& (0u-len));
     len += (3& (0u-len)) + 4*sizeof(disp);
 
@@ -1108,15 +966,16 @@ void PackDylibPPC32::pack3(OutputFile *fo, Filter &ft)  // append loader
 
     unsigned const save_sz_mach_headers(sz_mach_headers);
     sz_mach_headers = 0;
-    super::pack3(fo, ft);
+    len = super::pack3(fo, ft);
     sz_mach_headers = save_sz_mach_headers;
+    return len;
 }
 
-void PackDylibPPC64LE::pack3(OutputFile *fo, Filter &ft)  // append loader
+off_t PackDylibPPC64LE::pack3(OutputFile *fo, Filter &ft)  // append loader
 {
     TE64 disp;
     upx_uint64_t const zero = 0;
-    unsigned len = fo->getBytesWritten();
+    off_t len = fo->getBytesWritten();
     fo->write(&zero, 3& (0u-len));
     len += (3& (0u-len)) + 4*sizeof(disp);
 
@@ -1131,8 +990,9 @@ void PackDylibPPC64LE::pack3(OutputFile *fo, Filter &ft)  // append loader
 
     unsigned const save_sz_mach_headers(sz_mach_headers);
     sz_mach_headers = 0;
-    super::pack3(fo, ft);
+    len = super::pack3(fo, ft);
     sz_mach_headers = save_sz_mach_headers;
+    return len;
 }
 
 // Determine length of gap between PT_LOAD phdri[k] and closest PT_LOAD
@@ -1325,9 +1185,8 @@ void PackMachBase<T>::pack1(OutputFile *const fo, Filter &/*ft*/)  // generate e
     mhdro = mhdri;
     if (my_filetype==Mach_header::MH_EXECUTE) {
         memcpy(&mhdro, stub_main, sizeof(mhdro));
+        mhdro.flags = mhdri.flags;
         COMPILE_TIME_ASSERT(sizeof(mhdro.flags) == sizeof(unsigned))
-        mhdro.flags &= ~ (unsigned) Mach_header::MH_PIE;  // we require fixed address
-        mhdro.flags |= Mach_header::MH_BINDATLOAD;  // DT_BIND_NOW
     }
     unsigned pos = sizeof(mhdro);
     fo->write(&mhdro, sizeof(mhdro));
@@ -1352,12 +1211,16 @@ void PackMachBase<T>::pack1(OutputFile *const fo, Filter &/*ft*/)  // generate e
     segTEXT.cmdsize = sizeof(segTEXT) + sizeof(secTEXT);
     strncpy((char *)segTEXT.segname, "__TEXT", sizeof(segTEXT.segname));
     if (my_filetype==Mach_header::MH_EXECUTE) {
-        int k;  // must ignore zero-length segments, which sort last
-        for (k=n_segment; --k>=0; )
-            if (msegcmd[k].vmsize!=0)
-                break;
-        segTEXT.vmaddr = PAGE_MASK64 & (~PAGE_MASK64 +
-            msegcmd[k].vmsize + msegcmd[k].vmaddr );
+        if (Mach_header::MH_PIE & mhdri.flags) {
+            segTEXT.vmaddr = segZERO.vmsize;  // contiguous
+        }
+        else { // not MH_PIE
+            // Start above all eventual mappings.
+            // Cannot enlarge segZERO.vmsize because MacOS 10.13 (HighSierra)
+            // won't permit re-map of PAGEZERO.
+            // Stub will fill with PROT_NONE first.
+            segTEXT.vmaddr = vma_max;
+        }
     }
     if (my_filetype==Mach_header::MH_DYLIB) {
         segTEXT.vmaddr = 0;
@@ -1401,13 +1264,14 @@ void PackMachBase<T>::pack1(OutputFile *const fo, Filter &/*ft*/)  // generate e
     segLINK = segTEXT;
     segLINK.cmdsize = sizeof(segLINK);
     strncpy((char *)segLINK.segname, "__LINKEDIT", sizeof(segLINK.segname));
+    segLINK.initprot = Mach_command::VM_PROT_READ;
     segLINK.nsects = 0;
-    segLINK.initprot = Mach_command::VM_PROT_READ
-                     | Mach_command::VM_PROT_EXECUTE;
+    segLINK.vmsize = 0;
     // Adjust later: .vmaddr .vmsize .fileoff .filesize
 
+    unsigned gap = 0;
     if (my_filetype == Mach_header::MH_EXECUTE) {
-        unsigned cmdsize = mhdro.sizeofcmds - sizeof(segXHDR);
+        unsigned cmdsize = mhdro.sizeofcmds;
         Mach_header const *const ptr0 = (Mach_header const *)stub_main;
         Mach_command const *ptr1 = (Mach_command const *)(1+ ptr0);
         for (unsigned j = 0; j < mhdro.ncmds -1; ++j, (cmdsize -= ptr1->cmdsize),
@@ -1427,18 +1291,22 @@ void PackMachBase<T>::pack1(OutputFile *const fo, Filter &/*ft*/)  // generate e
                     // Mach_command before __LINKEDIT
                     pos += (char const *)ptr1 - (char const *)(1+ ptr0);
                     fo->write((1+ ptr0), (char const *)ptr1 - (char const *)(1+ ptr0));
-                    pos += sizeof(segXHDR);
-                    fo->write(&segXHDR, sizeof(segXHDR));
+
                     // Mach_command __LINKEDIT and after
                     pos += cmdsize;
                     fo->write((char const *)ptr1, cmdsize);
-                    // Contents before __LINKEDIT; put non-headers at same offset in file
-                    fo->write(&stub_main[pos], segptr->fileoff - pos);
-                    sz_mach_headers = fo->getBytesWritten();
+
+                    // 400: space for LC_UUID, LC_RPATH, LC_CODE_SIGNATURE, etc.
+                    gap = 400 + threado_size();
+                    secTEXT.offset = gap + pos;
+                    secTEXT.addr = secTEXT.offset + segTEXT.vmaddr;
                     break;
                 }
             }
         }
+        unsigned const sz_threado = threado_size();
+        MemBuffer space(sz_threado); memset(space, 0, sz_threado);
+        fo->write(space, sz_threado);
     }
     else if (my_filetype == Mach_header::MH_DYLIB) {
         Mach_command const *ptr = (Mach_command const *)rawmseg;
@@ -1470,15 +1338,12 @@ void PackMachBase<T>::pack1(OutputFile *const fo, Filter &/*ft*/)  // generate e
         }
         memset(&linkitem, 0, sizeof(linkitem));
         fo->write(&linkitem, sizeof(linkitem));
-        fo->write(rawmseg, mhdri.sizeofcmds);
-
-        sz_mach_headers = fo->getBytesWritten();
-        unsigned gap = secTEXT.offset - sz_mach_headers;
-        MemBuffer filler(gap);
-        memset(filler, 0, gap);
-        fo->write(filler, gap);
-        sz_mach_headers += gap;
     }
+    sz_mach_headers = fo->getBytesWritten();
+    gap = secTEXT.offset - sz_mach_headers;
+    MemBuffer filler(gap); filler.clear();
+    fo->write(filler, gap);
+    sz_mach_headers += gap;
 
     memset((char *)&linfo, 0, sizeof(linfo));
     fo->write(&linfo, sizeof(linfo));
@@ -1509,7 +1374,7 @@ void PackMachBase<T>::unpack(OutputFile *fo)
     if ((sizeof(mhdri) + sz_cmds) > (size_t)fi->st_size()) {
         throwCantUnpack("file header corrupted");
     }
-    rawmseg = (Mach_segment_command *)new char[sz_cmds];
+    rawmseg = (Mach_segment_command *) New(char, sz_cmds);
     fi->readx(rawmseg, mhdri.sizeofcmds);
 
     // FIXME forgot space left for LC_CODE_SIGNATURE;
@@ -1542,7 +1407,7 @@ void PackMachBase<T>::unpack(OutputFile *fo)
 
     // Uncompress Macho headers
     fi->readx(ibuf, ph.c_len);
-    Mach_header *const mhdr = (Mach_header *)new upx_byte[ph.u_len];
+    Mach_header *const mhdr = (Mach_header *) New(upx_byte, ph.u_len);
     decompress(ibuf, (upx_byte *)mhdr, false);
     if (mhdri.magic      != mhdr->magic
     ||  mhdri.cputype    != mhdr->cputype
@@ -1551,18 +1416,18 @@ void PackMachBase<T>::unpack(OutputFile *fo)
         throwCantUnpack("file header corrupted");
     unsigned const ncmds = mhdr->ncmds;
 
-    msegcmd = new Mach_segment_command[ncmds];
+    msegcmd = New(Mach_segment_command, ncmds);
     unsigned char const *ptr = (unsigned char const *)(1+mhdr);
     for (unsigned j= 0; j < ncmds; ++j) {
         memcpy(&msegcmd[j], ptr, umin(sizeof(Mach_segment_command),
             ((Mach_command const *)ptr)->cmdsize));
-        ptr += (unsigned) ((Mach_segment_command const *)ptr)->cmdsize;
-        if ((unsigned)(ptr - (unsigned char const *)mhdr) > ph.u_len) {
+        ptr += (unsigned) ((Mach_command const *)ptr)->cmdsize;
+        if (ptr_udiff(ptr, (1+ mhdr)) > ph.u_len) {
             throwCantUnpack("cmdsize");
         }
     }
 
-    // Put LC_SEGMENT together at the beginning, ascending by .vmaddr.
+    // Put LC_SEGMENT together at the beginning
     qsort(msegcmd, ncmds, sizeof(*msegcmd), compare_segment_command);
     n_segment = 0;
     for (unsigned j= 0; j < ncmds; ++j) {
@@ -1577,6 +1442,9 @@ void PackMachBase<T>::unpack(OutputFile *fo)
     fi->seek(- (off_t)(sizeof(bhdr) + ph.c_len), SEEK_CUR);
     for (unsigned k = 0; k < ncmds; ++k) {
         if (msegcmd[k].cmd==lc_seg && msegcmd[k].filesize!=0) {
+            if (!strcmp("__TEXT", msegcmd[k].segname)) {
+                segTEXT = msegcmd[k];
+            }
             if (fo)
                 fo->seek(msegcmd[k].fileoff, SEEK_SET);
             unpackExtent(msegcmd[k].filesize, fo, total_in, total_out,
@@ -1588,6 +1456,8 @@ void PackMachBase<T>::unpack(OutputFile *fo)
     }
     Mach_segment_command const *sc = (Mach_segment_command const *)(void *)(1+ mhdr);
     if (my_filetype==Mach_header::MH_DYLIB) { // rest of lc_seg are not compressed
+        upx_uint64_t cpr_mod_init_func(0);
+                TE32 unc_mod_init_func; *(int *)&unc_mod_init_func = 0;
         Mach_segment_command const *rc = rawmseg;
         rc = (Mach_segment_command const *)(rc->cmdsize + (char const *)rc);
         sc = (Mach_segment_command const *)(sc->cmdsize + (char const *)sc);
@@ -1599,12 +1469,20 @@ void PackMachBase<T>::unpack(OutputFile *fo)
         ) {
             if (lc_seg==rc->cmd
             &&  0!=rc->filesize ) {
+                if (!strcmp("__DATA", rc->segname)) {
+                    cpr_mod_init_func = get_mod_init_func(rc);
+                    fi->seek(cpr_mod_init_func - 4*sizeof(TE32), SEEK_SET);
+                    fi->readx(&unc_mod_init_func, sizeof(unc_mod_init_func));
+                }
                 fi->seek(rc->fileoff, SEEK_SET);
                 if (fo)
                     fo->seek(sc->fileoff, SEEK_SET);
                 unsigned const len = rc->filesize;
                 MemBuffer data(len);
                 fi->readx(data, len);
+                if (!strcmp("__DATA", rc->segname)) {
+                    set_te32(&data[o__mod_init_func - rc->fileoff], unc_mod_init_func);
+                }
                 if (fo)
                     fo->write(data, len);
             }
@@ -1640,10 +1518,11 @@ int PackMachBase<T>::canUnpack()
     my_cpusubtype = mhdri.cpusubtype;
 
     int headway = (int)mhdri.sizeofcmds;
+    sz_mach_headers = headway + sizeof(mhdri);
     if (1024 < headway) {
         infoWarning("Mach_header.sizeofcmds(%d) > 1024", headway);
     }
-    rawmseg = (Mach_segment_command *)new char[(unsigned) mhdri.sizeofcmds];
+    rawmseg = (Mach_segment_command *) New(char, mhdri.sizeofcmds);
     fi->readx(rawmseg, mhdri.sizeofcmds);
 
     Mach_segment_command const *ptrTEXT = 0;
@@ -1673,6 +1552,9 @@ int PackMachBase<T>::canUnpack()
             }
             if (!strcmp("__LINKEDIT", segptr->segname)) {
                 offLINK = segptr->fileoff;
+                if (segptr->filesize == blankLINK) {
+                    style = 395;
+                }
                 if (offLINK < (off_t) pos_next) {
                     offLINK = pos_next;
                 }
@@ -1680,7 +1562,7 @@ int PackMachBase<T>::canUnpack()
             pos_next = segptr->filesize + segptr->fileoff;
             if ((headway -= ptr->cmdsize) < 0) {
                 infoWarning("Mach_command[%u]{@%lu}.cmdsize = %u", j,
-                    sizeof(mhdri) + mhdri.sizeofcmds - (headway + ptr->cmdsize),
+                    (unsigned long) (sizeof(mhdri) + mhdri.sizeofcmds - (headway + ptr->cmdsize)),
                     (unsigned)ptr->cmdsize);
                 throwCantUnpack("sum(.cmdsize) exceeds .sizeofcmds");
             }
@@ -1689,7 +1571,7 @@ int PackMachBase<T>::canUnpack()
             rip = entryVMA = threadc_getPC(ptr);
         }
     }
-    if (3==nseg) { // __PAGEZERO, __TEXT, __LINKEDIT;  no __XHDR, no UPX_DATA
+    if (3==nseg && 395 != style) { // __PAGEZERO, __TEXT, __LINKEDIT;  no __XHDR, no UPX_DATA
         style = 392;
     }
     if (391==style && 0==offLINK && 2==ncmds) { // pre-3.91 ?
@@ -1704,11 +1586,19 @@ int PackMachBase<T>::canUnpack()
     if (391 == style) { // PackHeader precedes __LINKEDIT
         fi->seek(offLINK - bufsize, SEEK_SET);
     } else
-    if (392 == style) { // PackHeader follows loader at __LINKEDIT
-        if ((off_t)bufsize > (fi->st_size() - offLINK)) {
-            bufsize = fi->st_size() - offLINK;
+    if (392 == style) {
+        if (MH_DYLIB == my_filetype) {
+            fi->seek(fi->st_size() - bufsize, SEEK_SET);
         }
-        fi->seek(offLINK, SEEK_SET);
+        else { // PackHeader follows loader at __LINKEDIT
+            if ((off_t)bufsize > (fi->st_size() - offLINK)) {
+                bufsize = fi->st_size() - offLINK;
+            }
+            fi->seek(offLINK, SEEK_SET);
+        }
+    } else
+    if (395 == style) {
+        fi->seek(offLINK - bufsize - sizeof(PackHeader), SEEK_SET);
     }
     MemBuffer buf(bufsize);
 
@@ -1785,7 +1675,7 @@ int PackMachBase<T>::canUnpack()
 
             overlay_offset = 0;
             // The first non-zero word scanning backwards from __LINKEDIT.fileoff
-            // is the total length of compressed data which preceeds it
+            // is the total length of compressed data which precedes it
             //(distance to l_info), so that's another method.
             fi->seek(offLINK - 0x1000, SEEK_SET);
             fi->readx(buf, 0x1000);
@@ -1804,19 +1694,62 @@ int PackMachBase<T>::canUnpack()
                     }
                 }
             }
-
-            overlay_offset = 0;
         }
     }
 
+    overlay_offset = 0;  // impossible value
     int l = ph.buf_offset + ph.getPackHeaderSize();
-    if (l < 0 || (unsigned)(l + 4) > bufsize)
+    if (0 <= l && (unsigned)(l + sizeof(TE32)) <=bufsize) {
+        overlay_offset = get_te32(buf + i + l);
+    }
+    if (       overlay_offset < sz_mach_headers
+    ||  (off_t)overlay_offset >= file_size) {
+        infoWarning("file corrupted");
+        MemBuffer buf2(umin(1<<14, file_size));
+        fi->seek(sz_mach_headers, SEEK_SET);
+        fi->readx(buf2, buf2.getSize());
+        unsigned const *p = (unsigned const *)&buf2[0];
+        unsigned const *const e_buf2 = (unsigned const *)&buf2[buf2.getSize() - 4*sizeof(*p)];
+        for (; p <= e_buf2; ++p)
+        if (   0==p[0]  // p_info.p_progid
+        &&     0!=p[1]  // p_info.p_filesize
+        &&  p[2]==p[1]  // p_info.p_blocksize == p_info.p_filesize
+        &&  (unsigned)file_size < get_te32(&p[1])  // compression was worthwhile
+        &&  sz_mach_headers==get_te32(&p[3])  // b_info.sz_unc
+        ) {
+            overlay_offset = ((char const *)p - (char const *)&buf2[0]) + sz_mach_headers;
+            if (!(3&overlay_offset  // not word aligned
+                    ||        overlay_offset < sz_mach_headers
+                    || (off_t)overlay_offset >= file_size)) {
+                infoWarning("attempting recovery, overlay_offset = %#x", overlay_offset);
+                return true;
+            }
+        }
         throwCantUnpack("file corrupted");
-    overlay_offset = get_te32(buf + i + l);
-    if ((off_t)overlay_offset >= file_size)
-        throwCantUnpack("file corrupted");
-
+    }
     return true;
+}
+#define WANT_MACH_SEGMENT_ENUM
+#define WANT_MACH_SECTION_ENUM
+#include "p_mach_enum.h"
+
+template <class T>
+upx_uint64_t PackMachBase<T>::get_mod_init_func(Mach_segment_command const *segptr)
+{
+    for (Mach_section_command const *secptr = (Mach_section_command const *)(1+ segptr);
+        ptr_udiff(secptr, segptr) < segptr->cmdsize;
+        ++secptr
+    ) {
+        if (sizeof(Addr) == secptr->size
+        && !strcmp("__mod_init_func", secptr->sectname)) {
+            o__mod_init_func = secptr->offset;
+            fi->seek(o__mod_init_func, SEEK_SET);
+            Addr tmp;
+            fi->readx(&tmp, sizeof(Addr));
+            return tmp;
+        }
+    }
+    return 0;
 }
 
 template <class T>
@@ -1834,38 +1767,40 @@ bool PackMachBase<T>::canPack()
     my_cpusubtype = mhdri.cpusubtype;
 
     unsigned const sz_mhcmds = (unsigned)mhdri.sizeofcmds;
+    unsigned headway = file_size - sizeof(mhdri);
+    if (headway < sz_mhcmds) {
+        char buf[32]; snprintf(buf, sizeof(buf), "bad sizeofcmds %d", sz_mhcmds);
+        throwCantPack(buf);
+    }
     if (16384 < sz_mhcmds) { // somewhat arbitrary, but amd64-darwin.macho-upxmain.c
         throwCantPack("16384 < Mach_header.sizeofcmds");
     }
-    rawmseg = (Mach_segment_command *)new char[sz_mhcmds];
+    rawmseg = (Mach_segment_command *) New(char, sz_mhcmds);
     fi->readx(rawmseg, mhdri.sizeofcmds);
 
     unsigned const ncmds = mhdri.ncmds;
     if (256 < ncmds) { // arbitrary, but guard against garbage
         throwCantPack("256 < Mach_header.ncmds");
     }
-    msegcmd = new Mach_segment_command[ncmds];
+    msegcmd = New(Mach_segment_command, ncmds);
     unsigned char const *ptr = (unsigned char const *)rawmseg;
     for (unsigned j= 0; j < ncmds; ++j) {
         Mach_segment_command const *segptr = (Mach_segment_command const *)ptr;
+        if (headway < ((Mach_command const *)ptr)->cmdsize) {
+            char buf[64]; snprintf(buf, sizeof(buf),
+                "bad Mach_command[%d]{%#x, %#x}", j,
+                (unsigned)segptr->cmd, (unsigned)((Mach_command const *)ptr)->cmdsize);
+            throwCantPack(buf);
+        }
+        headway -= ((Mach_command const *)ptr)->cmdsize;
         if (lc_seg == segptr->cmd) {
             msegcmd[j] = *segptr;
             if (!strcmp("__DATA", segptr->segname)) {
-                for (Mach_section_command const *secptr = (Mach_section_command const *)(1+ segptr);
-                    ((char const *)secptr - (char const *)segptr) < segptr->cmdsize;
-                    ++secptr
-                ) {
-                    if (sizeof(Addr) == secptr->size
-                    && !strcmp("__mod_init_func", secptr->sectname)) {
-                        o__mod_init_func = secptr->offset;
-                        fi->seek(o__mod_init_func, SEEK_SET);
-                        fi->readx(&prev_mod_init_func, sizeof(Addr));
-                    }
-                }
+                prev_mod_init_func = get_mod_init_func(segptr);
             }
         }
         else {
-            memcpy(&msegcmd[j], ptr, 2*sizeof(unsigned)); // cmd and size
+            memcpy(&msegcmd[j], ptr, 2*sizeof(unsigned)); // cmd and cmdsize
         }
         switch (((Mach_uuid_command const *)ptr)->cmd) {
         default: break;
@@ -1885,14 +1820,14 @@ bool PackMachBase<T>::canPack()
             memcpy(&cmdSRCVER, ptr, sizeof(cmdSRCVER));
         } break;
         }
-        ptr += (unsigned) ((const Mach_segment_command *)ptr)->cmdsize;
+        ptr += (unsigned) ((Mach_command const *)ptr)->cmdsize;
     }
     if (Mach_header::MH_DYLIB==my_filetype && 0==o__mod_init_func) {
         infoWarning("missing -init function");
         return false;
     }
 
-    // Put LC_SEGMENT together at the beginning, ascending by .vmaddr.
+    // Put LC_SEGMENT together at the beginning
     qsort(msegcmd, ncmds, sizeof(*msegcmd), compare_segment_command);
 
     if (lc_seg==msegcmd[0].cmd && 0==msegcmd[0].vmaddr
@@ -1901,22 +1836,22 @@ bool PackMachBase<T>::canPack()
     }
 
     // Check alignment of non-null LC_SEGMENT.
+    vma_max = 0;
     for (unsigned j= 0; j < ncmds; ++j) {
         if (lc_seg==msegcmd[j].cmd) {
-            if (msegcmd[j].vmsize==0)
-                break;  // was sorted last
+            ++n_segment;
             if (~PAGE_MASK & (msegcmd[j].fileoff | msegcmd[j].vmaddr)) {
                 return false;
             }
-
-            // We used to check that LC_SEGMENTS were contiguous,
-            // but apparently that is not needed anymore,
-            // and Google compilers generate strange layouts.
-
-            ++n_segment;
+            upx_uint64_t t = msegcmd[j].vmsize + msegcmd[j].vmaddr;
+            if (vma_max < t) {
+                vma_max = t;
+            }
+            // Segments need not be contigous {esp. "rust")
             sz_segment = msegcmd[j].filesize + msegcmd[j].fileoff - msegcmd[0].fileoff;
         }
     }
+    vma_max = PAGE_MASK & (~PAGE_MASK + vma_max);
 
     // info: currently the header is 36 (32+4) bytes before EOF
     unsigned char buf[256];
@@ -1954,10 +1889,10 @@ bool PackMachBase<T>::canPack()
         {CPU_TYPE_X86_64, MH_EXECUTE,
             sizeof(stub_amd64_darwin_macho_entry),
             sizeof(stub_amd64_darwin_macho_fold),
-            sizeof(stub_amd64_darwin_macho_upxmain_exe),
+            0, //sizeof(stub_amd64_darwin_macho_upxmain_exe),
                    stub_amd64_darwin_macho_entry,
                    stub_amd64_darwin_macho_fold,
-                   stub_amd64_darwin_macho_upxmain_exe
+                   0 // stub_amd64_darwin_macho_upxmain_exe
         },
         {CPU_TYPE_X86_64, MH_DYLIB,
             sizeof(stub_amd64_darwin_dylib_entry), 0, 0,
@@ -1969,6 +1904,14 @@ bool PackMachBase<T>::canPack()
             0,
                    stub_arm_v5a_darwin_macho_entry,
                    stub_arm_v5a_darwin_macho_fold,
+                   0
+        },
+        {CPU_TYPE_ARM64, MH_EXECUTE,
+            sizeof(stub_arm64_darwin_macho_entry),
+            sizeof(stub_arm64_darwin_macho_fold),
+            0,
+                   stub_arm64_darwin_macho_entry,
+                   stub_arm64_darwin_macho_fold,
                    0
         },
         {CPU_TYPE_POWERPC, MH_EXECUTE,
@@ -2006,6 +1949,87 @@ bool PackMachBase<T>::canPack()
                stub_fold  = stub_list[j].stub_fold;
             sz_stub_main  = stub_list[j].sz_stub_main;
                stub_main  = stub_list[j].stub_main;
+            if (!stub_main) { // development stub
+                static struct {
+                    Mach_header mhdri;
+                    Mach_segment_command segZERO;
+                    Mach_segment_command segTEXT;
+                    Mach_section_command secTEXT;
+                    Mach_segment_command segLINK;
+                    Mach_version_min_command cmdVERMIN;
+                    Mach_source_version_command cmdSRCVER;
+                } fsm;  // fake_stub_main
+                fsm.mhdri = mhdri;
+                fsm.mhdri.ncmds = 5;
+                fsm.mhdri.sizeofcmds = sizeof(fsm) - sizeof(fsm.mhdri);
+                fsm.mhdri.flags = MH_NOUNDEFS | MH_PIE;
+
+                fsm.segZERO.cmd = LC_SEGMENT + (fsm.mhdri.cputype >> 24)
+                    * (LC_SEGMENT_64 - LC_SEGMENT);
+                fsm.segZERO.cmdsize = sizeof(Mach_segment_command);
+                strncpy(fsm.segZERO.segname, "__PAGEZERO", sizeof(fsm.segZERO.segname));
+                fsm.segZERO.vmaddr = 0;
+                fsm.segZERO.vmsize = (4<<16);
+                if __acc_cte(8==sizeof(void *)) fsm.segZERO.vmsize <<= (32 - 18);
+                fsm.segZERO.fileoff = 0;
+                fsm.segZERO.filesize = 0;
+                fsm.segZERO.maxprot = 0;
+                fsm.segZERO.initprot = 0;
+                fsm.segZERO.nsects = 0;
+                fsm.segZERO.flags = 0;
+
+                unsigned const slop = 400;
+                fsm.segTEXT.cmd = fsm.segZERO.cmd;
+                fsm.segTEXT.cmdsize = sizeof(Mach_segment_command)
+                    + sizeof(Mach_section_command);
+                strncpy(fsm.segTEXT.segname, "__TEXT", sizeof(fsm.segTEXT.segname));
+                fsm.segTEXT.vmaddr = fsm.segZERO.vmsize;
+                fsm.segTEXT.vmsize = slop + threado_size() + sizeof(fsm);  // dummy
+                fsm.segTEXT.fileoff = 0;
+                fsm.segTEXT.filesize = fsm.segTEXT.vmsize;  // dummy
+                fsm.segTEXT.maxprot = VM_PROT_EXECUTE | VM_PROT_READ;
+                fsm.segTEXT.initprot = VM_PROT_EXECUTE | VM_PROT_READ;
+                fsm.segTEXT.nsects = 1;
+                fsm.segTEXT.flags = 0;
+
+                strncpy(fsm.secTEXT.sectname, "__text", sizeof(fsm.secTEXT.sectname));
+                memcpy(fsm.secTEXT.segname, fsm.segTEXT.segname, sizeof(fsm.secTEXT.segname));
+                unsigned const d = slop + fsm.mhdri.sizeofcmds;
+                fsm.secTEXT.addr = fsm.segTEXT.vmaddr + d;  // dummy
+                fsm.secTEXT.size = fsm.segTEXT.vmsize - d;  // dummy
+                fsm.secTEXT.offset = d;  // dummy
+                fsm.secTEXT.align = 3;  // (1<<2)
+                fsm.secTEXT.reloff = 0;
+                fsm.secTEXT.nreloc = 0;
+                fsm.secTEXT.flags = S_REGULAR | S_ATTR_PURE_INSTRUCTIONS | S_ATTR_SOME_INSTRUCTIONS;
+                fsm.secTEXT.reserved1 = 0;
+                fsm.secTEXT.reserved2 = 0;
+
+                fsm.segLINK = fsm.segTEXT;
+                fsm.segLINK.cmdsize = sizeof(Mach_segment_command);
+                strncpy(fsm.segLINK.segname, "__LINKEDIT", sizeof(fsm.segLINK.segname));
+                fsm.segLINK.vmaddr = fsm.segTEXT.vmaddr + fsm.segTEXT.vmsize;  // dummy
+                fsm.segLINK.vmsize = 0x1000;  // dummy
+                fsm.segLINK.fileoff = fsm.segTEXT.fileoff + fsm.segTEXT.filesize;
+                fsm.segLINK.filesize = fsm.segLINK.vmsize;
+                fsm.segLINK.maxprot = VM_PROT_READ;
+                fsm.segLINK.initprot = VM_PROT_READ;
+                fsm.segLINK.nsects = 0;
+
+                fsm.cmdVERMIN.cmd = LC_VERSION_MIN_MACOSX;  // LC_VERSION_MIN_IPHONEOS
+                fsm.cmdVERMIN.cmdsize = 4*4;
+                fsm.cmdVERMIN.version = (10<<16)|(12<<8);
+                fsm.cmdVERMIN.sdk = fsm.cmdVERMIN.version;
+
+                fsm.cmdSRCVER.cmd = LC_SOURCE_VERSION;
+                fsm.cmdSRCVER.cmdsize = 4*4;
+                fsm.cmdSRCVER.version = 0;
+                fsm.cmdSRCVER.__pad = 0;
+
+                sz_stub_main  = sizeof(fsm);
+                   stub_main  = (unsigned char const *)&fsm;
+            }
+            break;
         }
     }
     return true;

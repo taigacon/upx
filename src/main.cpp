@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2017 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2017 Laszlo Molnar
+   Copyright (C) 1996-2019 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2019 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -46,7 +46,7 @@ int _crt0_startup_flags = _CRT0_FLAG_UNIX_SBRK;
 void options_t::reset()
 {
     options_t *o = this;
-    memset(o, 0, sizeof(*o));
+    mem_clear(o, sizeof(*o));
     o->crp.reset();
 
     o->cmd = CMD_NONE;
@@ -869,6 +869,12 @@ static int do_option(int optc, const char *arg)
     case 676:
         opt->o_unix.android_shlib = true;
         break;
+    case 677:
+        opt->o_unix.force_pie = true;
+        break;
+    case 678:
+        opt->o_unix.assume_execute_permission = true;
+        break;
 
     case '\0':
         return -1;
@@ -1020,6 +1026,8 @@ static const struct mfx_option longopts[] =
     {"unmap-all-pages",  0x10, 0, 674},     // linux /proc/self/exe vanishes
     {"preserve-build-id",   0, 0, 675},
     {"android-shlib",       0, 0, 676},
+    {"force-pie",           0, 0, 677},
+    {"assume-execute-permission", 0, 0, 678},
     // watcom/le
     {"le",               0x10, 0, 620},     // produce LE output
     // win32/pe
@@ -1536,11 +1544,18 @@ int __acc_cdecl_main main(int argc, char *argv[])
 
     if (gitrev[0])
     {
-        FILE *f = stdout;
-        int fg = con_fg(f,FG_RED);
-        con_fprintf(f,"\nWARNING: this is an unstable beta version - use for testing only! Really.\n");
-        fg = con_fg(f,fg);
-        UNUSED(fg);
+        bool warn = true;
+        const char *ee = getenv("UPX_DISABLE_GITREV_WARNING");
+        if (ee && ee[0] && strcmp(ee, "1") == 0)
+            warn = false;
+        if (warn)
+        {
+            FILE *f = stdout;
+            int fg = con_fg(f, FG_RED);
+            con_fprintf(f, "\nWARNING: this is an unstable beta version - use for testing only! Really.\n");
+            fg = con_fg(f, fg);
+            UNUSED(fg);
+        }
     }
 
 #if 0 && defined(__GLIBC__)

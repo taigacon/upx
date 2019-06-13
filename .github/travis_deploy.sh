@@ -15,7 +15,7 @@ source "$argv0dir/travis_init.sh" || exit 1
 set -x # debug
 
 if [[ $BM_X == rebuild-stubs ]]; then exit 0; fi
-# save space
+# save space and do not deploy debug builds
 if [[ $BM_B =~ (^|\+)coverage($|\+) ]]; then exit 0; fi
 if [[ $BM_B =~ (^|\+)debug($|\+) ]]; then exit 0; fi
 if [[ $BM_B =~ (^|\+)sanitize($|\+) ]]; then exit 0; fi
@@ -99,8 +99,17 @@ else
         [[ $cpu == amd64 ]] && os=win64
     fi
     d=$cpu-$os
+    unset cpu os
 fi
 d=$d-$BM_C-$BM_B
+
+# remove redundant -m32/-m64/-x86/-x64 from directory name
+if [[ $d =~ ^((i386-darwin|i386-linux|i386-win32).*)(-m32|-x86)(-.+)?$ ]]; then
+   d="${BASH_REMATCH[1]}${BASH_REMATCH[4]}"
+fi
+if [[ $d =~ ^((amd64-darwin|amd64-linux|amd64-win64).*)(-m64|-x64)(-.+)?$ ]]; then
+   d="${BASH_REMATCH[1]}${BASH_REMATCH[4]}"
+fi
 
 if [[ -n $subdir ]]; then
     print_header "DEPLOY $subdir/$d"
@@ -115,6 +124,7 @@ for exeext in .exe .out; do
         cp -p -i $f  $d/upx-git-${rev:0:12}$exeext
         sha256sum -b $d/upx-git-${rev:0:12}$exeext
     fi
+    unset f
 done
 
 # /***********************************************************************

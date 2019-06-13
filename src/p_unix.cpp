@@ -2,9 +2,9 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2017 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2017 Laszlo Molnar
-   Copyright (C) 2000-2017 John F. Reiser
+   Copyright (C) 1996-2019 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2019 Laszlo Molnar
+   Copyright (C) 2000-2019 John F. Reiser
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -63,11 +63,10 @@ bool PackUnix::canPack()
     if (exetype == 0)
         return false;
 
-#if defined(__unix__)
     // must be executable by owner
-    if ((fi->st.st_mode & S_IXUSR) == 0)
+    if (!opt->o_unix.assume_execute_permission  // benefits __MSYS2__
+    &&  (fi->st.st_mode & S_IXUSR) == 0)
         throwCantPack("file not executable; try 'chmod +x'");
-#endif
     if (file_size < 4096)
         throwCantPack("file is too small");
 
@@ -246,7 +245,7 @@ PackUnix::patchLoaderChecksum()
     set_te32(&lp->l_checksum, upx_adler32(ptr, lsize));
 }
 
-void PackUnix::pack3(OutputFile *fo, Filter &ft)
+off_t PackUnix::pack3(OutputFile *fo, Filter &ft)
 {
     if (0==linker) {
         // If no filter, then linker is not constructed by side effect
@@ -259,6 +258,7 @@ void PackUnix::pack3(OutputFile *fo, Filter &ft)
     updateLoader(fo);
     patchLoaderChecksum();
     fo->write(p, lsize);
+    return fo->getBytesWritten();
 }
 
 void PackUnix::pack4(OutputFile *fo, Filter &)

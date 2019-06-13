@@ -2,9 +2,9 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2017 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2017 Laszlo Molnar
-   Copyright (C) 2000-2017 John F. Reiser
+   Copyright (C) 1996-2019 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2019 Laszlo Molnar
+   Copyright (C) 2000-2019 John F. Reiser
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -30,6 +30,7 @@
  */
 
 
+#define __WORDSIZE 64
 #include "include/darwin.h"
 
 
@@ -315,13 +316,13 @@ typedef union {
    unsigned long long off_t goes into registers (9,10) instead of (8,9).
    Adjust in mmap(), pread(), and include/darwin.h .
 */
-extern char *mmap(char *, size_t, unsigned, unsigned, int, off_t);
-ssize_t pread(int, void *, size_t, off_t);
+extern char *mmap(char *, size_t, unsigned, unsigned, int, off_t_upx_stub);
+ssize_t pread(int, void *, size_t, off_t_upx_stub);
 
 static Mach_ppcle_thread_state64 const *
 do_xmap(
     Mach_header const *const mhdr,
-    off_t const fat_offset,
+    off_t_upx_stub const fat_offset,
     Extent *const xi,
     int const fdi,
     Mach_header **mhdrpp,
@@ -399,7 +400,7 @@ upx_main(
 )
 {
     Mach_ppcle_thread_state64 const *entry;
-    off_t fat_offset = 0;
+    off_t_upx_stub fat_offset = 0;
     Extent xi, xo, xi0;
     xi.buf  = CONST_CAST(char *, 1+ (struct p_info const *)(1+ li));  // &b_info
     xi.size = sz_compressed - (sizeof(struct l_info) + sizeof(struct p_info));

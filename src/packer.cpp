@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2017 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2017 Laszlo Molnar
+   Copyright (C) 1996-2019 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2019 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -47,7 +47,7 @@ Packer::Packer(InputFile *f) :
     if (fi != NULL)
         file_size = fi->st_size();
     uip = new UiPacker(this);
-    memset(&ph, 0, sizeof(ph));
+    mem_clear(&ph, sizeof(ph));
 }
 
 
@@ -203,7 +203,7 @@ bool Packer::compress(upx_bytep i_ptr, unsigned i_len, upx_bytep o_ptr,
     // update checksum of uncompressed data
     ph.u_adler = upx_adler32(i_ptr, ph.u_len, ph.u_adler);
 
-    // set compression paramters
+    // set compression parameters
     upx_compress_config_t cconf; cconf.reset();
     if (cconf_parm)
         cconf = *cconf_parm;
@@ -665,7 +665,7 @@ unsigned Packer::getRandomId() const
 // this is called directly after the constructor from class PackMaster
 void Packer::initPackHeader()
 {
-    memset(&ph, 0, sizeof(ph));
+    mem_clear(&ph, sizeof(ph));
     ph.version = getVersion();
     ph.format = getFormat();
     ph.method = M_NONE;
@@ -1481,11 +1481,11 @@ void Packer::compressWithFilters(upx_bytep i_ptr, unsigned i_len,
                     lsize = getLoaderSize();
                     assert(lsize > 0);
                 }
-#if 0
+#if 0  //{
                 printf("\n%2d %02x: %d +%4d +%3d = %d  (best: %d +%4d +%3d = %d)\n", ph.method, ph.filter,
                        ph.c_len, lsize, hdr_c_len, ph.c_len + lsize + hdr_c_len,
                        best_ph.c_len, best_ph_lsize, best_hdr_c_len, best_ph.c_len + best_ph_lsize + best_hdr_c_len);
-#endif
+#endif  //}
                 bool update = false;
                 if (ph.c_len + lsize + hdr_c_len < best_ph.c_len + best_ph_lsize + best_hdr_c_len)
                     update = true;

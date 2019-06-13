@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2017 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2017 Laszlo Molnar
+   Copyright (C) 1996-2019 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2019 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -594,7 +594,8 @@ void ElfLinkerAMD64::relocate1(const Relocation *rel, upx_byte *location, upx_ui
 
 void ElfLinkerArmBE::relocate1(const Relocation *rel, upx_byte *location, upx_uint64_t value,
                                const char *type) {
-    if (strcmp(type, "R_ARM_PC24") == 0) {
+    if (!strcmp(type, "R_ARM_PC24") || !strcmp(type, "R_ARM_CALL") ||
+        !strcmp(type, "R_ARM_JUMP24")) {
         value -= rel->section->offset + rel->offset;
         set_be24(1 + location, get_be24(1 + location) + value / 4);
     } else if (strcmp(type, "R_ARM_ABS32") == 0) {
@@ -618,7 +619,8 @@ void ElfLinkerArmBE::relocate1(const Relocation *rel, upx_byte *location, upx_ui
 
 void ElfLinkerArmLE::relocate1(const Relocation *rel, upx_byte *location, upx_uint64_t value,
                                const char *type) {
-    if (strcmp(type, "R_ARM_PC24") == 0) {
+    if (!strcmp(type, "R_ARM_PC24") || !strcmp(type, "R_ARM_CALL") ||
+        !strcmp(type, "R_ARM_JUMP24")) {
         value -= rel->section->offset + rel->offset;
         set_le24(location, get_le24(location) + value / 4);
     } else if (strcmp(type, "R_ARM_ABS32") == 0) {
@@ -656,6 +658,12 @@ void ElfLinkerArm64LE::relocate1(const Relocation *rel, upx_byte *location, upx_
             set_le32(location, get_le32(location) + value);
         else if (!strcmp(type, "64"))
             set_le64(location, get_le64(location) + value);
+    } else if (!strcmp(type, "ADR_PREL_LO21")) {
+        value -= rel->section->offset + rel->offset;
+        upx_uint32_t const m19 = ~(~0u << 19);
+        upx_uint32_t w = get_le32(location);
+        set_le32(location, (w & ~((3u << 29) | (m19 << 5))) | ((3u & value) << 29) |
+                               ((m19 & (value >> 2)) << 5));
     } else if (!strcmp(type, "ABS32")) {
         set_le32(location, get_le32(location) + value);
     } else if (!strcmp(type, "ABS64")) {
@@ -833,7 +841,7 @@ void ElfLinkerPpc64le::relocate1(const Relocation *rel, upx_byte *location, upx_
 }
 
 void ElfLinkerPpc64::relocate1(const Relocation *rel, upx_byte *location, upx_uint64_t value,
-                                 const char *type) {
+                               const char *type) {
     if (!strcmp(type, "R_PPC64_ADDR32")) {
         set_be32(location, get_be32(location) + value);
         return;
@@ -855,9 +863,9 @@ void ElfLinkerPpc64::relocate1(const Relocation *rel, upx_byte *location, upx_ui
     value -= rel->section->offset + rel->offset;
 
     if (strncmp(type, "14", 2) == 0) // for "14" and "14S"
-        set_be16(2+ location, get_be16(2+ location) + value);
+        set_be16(2 + location, get_be16(2 + location) + value);
     else if (strncmp(type, "24", 2) == 0) // for "24" and "24S"
-        set_be24(1+ location, get_be24(1+ location) + value);
+        set_be24(1 + location, get_be24(1 + location) + value);
     else
         super::relocate1(rel, location, value, type);
 }

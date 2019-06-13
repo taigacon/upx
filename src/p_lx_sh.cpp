@@ -2,9 +2,9 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2017 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2017 Laszlo Molnar
-   Copyright (C) 2000-2017 John F. Reiser
+   Copyright (C) 1996-2019 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2019 Laszlo Molnar
+   Copyright (C) 2000-2019 John F. Reiser
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -161,11 +161,10 @@ PackLinuxI386sh::pack1(OutputFile *fo, Filter &)
     generateElfHdr(fo, stub_i386_linux_elf_shell_fold, 0x08048000);
 }
 
-void
+off_t
 PackLinuxI386sh::pack3(OutputFile *fo, Filter &ft)
 {
-    super::pack3(fo,ft);
-    elfout.phdr[0].p_filesz = fo->getBytesWritten();
+    return elfout.phdr[0].p_filesz = super::pack3(fo,ft);
 }
 
 /* vim:set ts=4 sw=4 et: */

@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2017 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2017 Laszlo Molnar
+   Copyright (C) 1996-2019 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2019 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -63,6 +63,11 @@ public:
     void fill(unsigned off, unsigned len, int value);
     void clear(unsigned off, unsigned len)  { fill(off, len, 0); }
     void clear()                            { fill(0, b_size, 0); }
+
+    // If the entire range [skip, take+skip) is inside the buffer,
+    // then return &b[skip]; else throwCantPack(sprintf(errfmt, skip, take)).
+    // This is similar to BoundedPtr, except only checks once.
+    unsigned char *subref(char const *errfmt, unsigned skip, unsigned take);
 
 private:
     unsigned char *b;

@@ -5,9 +5,9 @@
 // remains copyright by John F. Reiser and licensed under GNU Lesser General
 // Public License (GNU LGPL).
 
-// Hand compiled Copyright (c) 2006-2017 John F. Reiser  (2007-06-18)
+// Hand compiled Copyright (c) 2006-2019 John F. Reiser  (2007-06-18)
 // from modified LzmaDecode.c.
-// LZMA SDK 4.40 Copyright (c) 1999-2017 Igor Pavlov (2006-05-01)
+// LZMA SDK 4.40 Copyright (c) 1999-2019 Igor Pavlov (2006-05-01)
 //
 // This file is licensed under either of these two licenses:
 //   1) GNU Lesser General Public License (GNU LGPL)
@@ -72,8 +72,10 @@ RepLenCoder= (LenCoder + kNumLenProbs)
 Literal=  (RepLenCoder + kNumLenProbs)
 
 // Already #define in lzma_d.S
-//LZMA_BASE_SIZE= Literal
-//LZMA_LIT_SIZE=  768
+#ifndef LZMA_LIT_SIZE  //{
+#define LZMA_BASE_SIZE 1846
+#define LZMA_LIT_SIZE  768
+#endif  //}
 
 #define call bl  /* subroutine call */
 

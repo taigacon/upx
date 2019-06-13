@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2017 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2017 Laszlo Molnar
+   Copyright (C) 1996-2019 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2019 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -71,6 +71,18 @@ MemBuffer::MemBuffer(upx_uint64_t size) :
 MemBuffer::~MemBuffer()
 {
     this->dealloc();
+}
+
+// similar to BoundedPtr, except checks only at creation
+unsigned char *MemBuffer::subref(char const *errfmt, unsigned skip, unsigned take)
+{
+    if ((take + skip) < take  // wrap-around
+    ||  (take + skip) > b_size  // overrun
+    ) {
+        char buf[100]; snprintf(buf, sizeof(buf), errfmt, skip, take);
+        throwCantPack(buf);
+    }
+    return &b[skip];
 }
 
 void MemBuffer::dealloc()

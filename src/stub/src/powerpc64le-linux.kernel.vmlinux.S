@@ -3,9 +3,9 @@
 ;
 ;  This file is part of the UPX executable compressor.
 ;
-;  Copyright (C) 1996-2017 Markus Franz Xaver Johannes Oberhumer
-;  Copyright (C) 1996-2017 Laszlo Molnar
-;  Copyright (C) 2004-2017 John Reiser
+;  Copyright (C) 1996-2019 Markus Franz Xaver Johannes Oberhumer
+;  Copyright (C) 1996-2019 Laszlo Molnar
+;  Copyright (C) 2004-2019 John Reiser
 ;  All Rights Reserved.
 ;
 ;  UPX and the UCL library are free software; you can redistribute them
@@ -29,6 +29,10 @@
 ;  John Reiser
 ;  <jreiser@users.sourceforge.net>
 */
+
+#ifndef BIG_ENDIAN  //{
+#define BIG_ENDIAN 0
+#endif  //}
 
 #include "arch/powerpc/64le/macros.S"
 #include "arch/powerpc/64le/ppc_regs.h"
@@ -66,7 +70,7 @@ uncompress:
 
 SZ_DLINE=128  # size of data cache line in Apple G5
 
-/* register assingments for NRV algorithms */
+/* register assignments for NRV algorithms */
 #define  hibit r0  /* holds 0x80000000 during decompress */
 
 #define src  a0

@@ -2,8 +2,8 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2017 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2017 Laszlo Molnar
+   Copyright (C) 1996-2019 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2019 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -29,6 +29,7 @@
 #ifndef __UPX_P_MACHO_H
 #define __UPX_P_MACHO_H 1
 
+#include "conf.h"
 
 __packed_struct(Mach_fat_header)
     BE32 magic;
@@ -335,6 +336,7 @@ __packed_struct(Mach_source_version_command)
     Word cmd;  // LC_SOURCE_VERSION
     Word cmdsize;  // 16
     Word version;
+    Word __pad;  // to 0 mod 8
 __packed_struct_end()
 
 template <class TMachITypes>
@@ -764,7 +766,7 @@ public:
     // called by the generic pack()
     virtual void pack1(OutputFile *, Filter &);  // generate executable header
     virtual int  pack2(OutputFile *, Filter &);  // append compressed data
-    virtual void pack3(OutputFile *, Filter &) /*= 0*/;  // append loader
+    virtual off_t pack3(OutputFile *, Filter &) /*= 0*/;  // append loader
     virtual void pack4(OutputFile *, Filter &) /*= 0*/;  // append PackHeader
 
     virtual void pack4dylib(OutputFile *, Filter &, Addr init_address);
@@ -778,6 +780,7 @@ public:
 
     virtual bool canPack();
     virtual int canUnpack();
+    virtual upx_uint64_t get_mod_init_func(Mach_segment_command const *segptr);
     virtual unsigned find_SEGMENT_gap(unsigned const k, unsigned pos_eof);
 
 protected:
@@ -820,6 +823,7 @@ protected:
     unsigned o__mod_init_func;  // file offset to __DATA.__mod_init_func Mach_section_command
     upx_uint64_t prev_mod_init_func;
     upx_uint64_t pagezero_vmsize;
+    upx_uint64_t vma_max;  // max over (.vmsize + .vmaddr)
     Mach_header mhdri;
 
     Mach_header mhdro;
@@ -987,7 +991,7 @@ public:
     virtual const char *getName() const { return "dylib/ppc32"; }
     virtual const char *getFullName(const options_t *) const { return "powerpc-darwin.dylib"; }
 protected:
-    virtual void pack3(OutputFile *, Filter &);  // append loader
+    virtual off_t pack3(OutputFile *, Filter &);  // append loader
     virtual void pack4(OutputFile *, Filter &);  // append PackHeader
 };
 
@@ -1002,7 +1006,7 @@ public:
     virtual const char *getName() const { return "dylib/ppc64le"; }
     virtual const char *getFullName(const options_t *) const { return "powerpc64le-darwin.dylib"; }
 protected:
-    virtual void pack3(OutputFile *, Filter &);  // append loader
+    virtual off_t pack3(OutputFile *, Filter &);  // append loader
     virtual void pack4(OutputFile *, Filter &);  // append PackHeader
 };
 
@@ -1069,7 +1073,7 @@ public:
     virtual const char *getName() const { return "dylib/i386"; }
     virtual const char *getFullName(const options_t *) const { return "i386-darwin.dylib"; }
 protected:
-    virtual void pack3(OutputFile *, Filter &);  // append loader
+    virtual off_t pack3(OutputFile *, Filter &);  // append loader
     virtual void pack4(OutputFile *, Filter &);  // append PackHeader
 };
 
@@ -1137,7 +1141,7 @@ public:
     virtual const char *getName() const { return "dylib/amd64"; }
     virtual const char *getFullName(const options_t *) const { return "amd64-darwin.dylib"; }
 protected:
-    virtual void pack3(OutputFile *, Filter &);  // append loader
+    virtual off_t pack3(OutputFile *, Filter &);  // append loader
     virtual void pack4(OutputFile *, Filter &);  // append PackHeader
 };
 
@@ -1205,7 +1209,6 @@ public:
     virtual const char *getName() const { return "macho/arm64"; }
     virtual const char *getFullName(const options_t *) const { return "arm64-darwin.macho"; }
 protected:
-    virtual const int *getCompressionMethods(int method, int level) const;
     virtual const int *getFilters() const;
 
     virtual void pack1_setup_threado(OutputFile *const fo);

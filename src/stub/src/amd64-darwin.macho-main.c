@@ -2,9 +2,9 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2017 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2017 Laszlo Molnar
-   Copyright (C) 2000-2017 John F. Reiser
+   Copyright (C) 1996-2019 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2019 Laszlo Molnar
+   Copyright (C) 2000-2019 John F. Reiser
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -30,7 +30,18 @@
  */
 
 
+#define __WORDSIZE 64
 #include "include/darwin.h"
+
+#define SIMULATE_ON_LINUX_EABI4 0
+
+#if defined(__arm__)  //{
+#define DEBUG 0  /* __arm__ */
+#endif  //}
+
+#if defined(__aarch64__)  //{
+#define DEBUG 0  /* __aarch64__ */
+#endif  //}
 
 #ifndef DEBUG  /*{*/
 #define DEBUG 0
@@ -44,136 +55,53 @@
 // it at an address different from it load address:  there must be no
 // static data, and no string constants.
 
-#if !DEBUG  /*{*/
-#define DPRINTF(a) /* empty: no debug drivel */
-#define DEBUG_STRCON(name, value) /* empty */
-#else  /*}{ DEBUG */
-extern int write(int, void const *, size_t);
-#if 0
-#include "stdarg.h"
-#else
-#define va_arg      __builtin_va_arg
-#define va_end      __builtin_va_end
-#define va_list     __builtin_va_list
-#define va_start    __builtin_va_start
-#endif
+#if !DEBUG //{
+#define DPRINTF(fmt, args...) /*empty*/
+#else  //}{
+// DPRINTF is defined as an expression using "({ ... })"
+// so that DPRINTF can be invoked inside an expression,
+// and then followed by a comma to ignore the return value.
+// The only complication is that percent and backslash
+// must be doubled in the format string, because the format
+// string is processd twice: once at compile-time by 'asm'
+// to produce the assembled value, and once at runtime to use it.
+#if defined(__powerpc__)  //{
+#define DPRINTF(fmt, args...) ({ \
+    char const *r_fmt; \
+    asm("bl 0f; .string \"" fmt "\"; .balign 4; 0: mflr %0" \
+/*out*/ : "=r"(r_fmt) \
+/* in*/ : \
+/*und*/ : "lr"); \
+    dprintf(r_fmt, args); \
+})
+#elif defined(__x86_64) //}{
+#define DPRINTF(fmt, args...) ({ \
+    char const *r_fmt; \
+    asm("call 0f; .asciz \"" fmt "\"; 0: pop %0" \
+/*out*/ : "=r"(r_fmt) ); \
+    dprintf(r_fmt, args); \
+})
+#elif defined(__aarch64__) //}{
+#define DPRINTF(fmt, args...) ({ \
+    char const *r_fmt; \
+    asm("bl 0f; .string \"" fmt "\"; .balign 4; 0: mov %0,x30" \
+/*out*/ : "=r"(r_fmt) \
+/* in*/ : \
+/*und*/ : "x30"); \
+    dprintf(r_fmt, args); \
+})
+#elif defined(__arm__)  //}{
+#define DPRINTF(fmt, args...) ({ \
+    char const *r_fmt; \
+    asm("bl 0f; .string \"" fmt "\"; .balign 4; 0: mov %0,lr" \
+/*out*/ : "=r"(r_fmt) \
+/* in*/ : \
+/*und*/ : "lr"); \
+    dprintf(r_fmt, args); \
+})
+#endif  //}
 
-#if defined(__i386__) || defined(__x86_64__) /*{*/
-#define PIC_STRING(value, var) \
-    __asm__ __volatile__ ( \
-        "call 0f; .asciz \"" value "\"; \
-      0: pop %0;" : "=r"(var) : \
-    )
-#elif defined(__arm__)  /*}{*/
-#define PIC_STRING(value, var) \
-    __asm__ __volatile__ ( \
-        "mov %0,pc; b 0f; \
-        .asciz \"" value "\"; .balign 4; \
-      0: " : "=r"(var) \
-    )
-#elif defined(__mips__)  /*}{*/
-#define PIC_STRING(value, var) \
-    __asm__ __volatile__ ( \
-        ".set noreorder; bal 0f; move %0,$31; .set reorder; \
-        .asciz \"" value "\"; .balign 4; \
-      0: " \
-        : "=r"(var) : : "ra" \
-    )
-#endif  /*}*/
-
-
-#define DEBUG_STRCON(name, strcon) \
-    static char const *name(void) { \
-        register char const *rv; PIC_STRING(strcon, rv); \
-        return rv; \
-    }
-
-
-#ifdef __arm__  /*{*/
-extern unsigned div10(unsigned);
-#else  /*}{*/
-static unsigned
-div10(unsigned x)
-{
-    return x / 10u;
-}
-#endif  /*}*/
-
-static int
-unsimal(unsigned x, char *ptr, int n)
-{
-    if (10<=x) {
-        unsigned const q = div10(x);
-        x -= 10 * q;
-        n = unsimal(q, ptr, n);
-    }
-    ptr[n] = '0' + x;
-    return 1+ n;
-}
-
-static int
-decimal(int x, char *ptr, int n)
-{
-    if (x < 0) {
-        x = -x;
-        ptr[n++] = '-';
-    }
-    return unsimal(x, ptr, n);
-}
-
-DEBUG_STRCON(STR_hex, "0123456789abcdef");
-
-static int
-heximal(unsigned long x, char *ptr, int n)
-{
-    if (16<=x) {
-        n = heximal(x>>4, ptr, n);
-        x &= 0xf;
-    }
-    ptr[n] = STR_hex()[x];
-    return 1+ n;
-}
-
-
-#define DPRINTF(a) dprintf a
-
-static int
-dprintf(char const *fmt, ...)
-{
-    char c;
-    int n= 0;
-    char *ptr;
-    char buf[20];
-    va_list va; va_start(va, fmt);
-    ptr= &buf[0];
-    while (0!=(c= *fmt++)) if ('%'!=c) goto literal;
-    else switch (c= *fmt++) {
-    default: {
-literal:
-        n+= write(2, fmt-1, 1);
-    } break;
-    case 0: goto done;  /* early */
-    case 'u': {
-        n+= write(2, buf, unsimal(va_arg(va, unsigned), buf, 0));
-    } break;
-    case 'd': {
-        n+= write(2, buf, decimal(va_arg(va, int), buf, 0));
-    } break;
-    case 'p': {
-        buf[0] = '0';
-        buf[1] = 'x';
-        n+= write(2, buf, heximal((unsigned long)va_arg(va, void *), buf, 2));
-    } break;
-    case 'x': {
-        buf[0] = '0';
-        buf[1] = 'x';
-        n+= write(2, buf, heximal(va_arg(va, int), buf, 2));
-    } break;
-    }
-done:
-    va_end(va);
-    return n;
-}
+static int dprintf(char const *fmt, ...); // forward
 #endif  /*}*/
 
 
@@ -186,22 +114,21 @@ typedef struct {
     void *buf;
 } Extent;
 
-DEBUG_STRCON(STR_xread, "xread %%p(%%x %%p) %%p %%x\\n")
-DEBUG_STRCON(STR_xreadfail, "xreadfail %%p(%%x %%p) %%p %%x\\n")
-
 static void
 xread(Extent *x, void *buf, size_t count)
 {
     unsigned char *p=x->buf, *q=buf;
     size_t j;
-    DPRINTF((STR_xread(), x, x->size, x->buf, buf, count));
+    DPRINTF("xread %%p(%%x %%p) %%p %%x\\n", x, x->size, x->buf, buf, count);
     if (x->size < count) {
-        DPRINTF((STR_xreadfail(), x, x->size, x->buf, buf, count));
+        DPRINTF("xreadfail %%p(%%x %%p) %%p %%x\\n",
+            x, x->size, x->buf, buf, count);
         exit(127);
     }
     for (j = count; 0!=j--; ++p, ++q) {
         *q = *p;
     }
+    DPRINTF("   buf: %%x %%x %%x\\n", ((int *)buf)[0], ((int *)buf)[1], ((int *)buf)[2]);
     x->buf  += count;
     x->size -= count;
 }
@@ -211,19 +138,18 @@ xread(Extent *x, void *buf, size_t count)
 // util
 **************************************************************************/
 
-#if 1  //{  save space
+#if 0  //{  save space
 #define ERR_LAB error: exit(127);
 #define err_exit(a) goto error
 #else  //}{  save debugging time
 #define ERR_LAB /*empty*/
-DEBUG_STRCON(STR_exit, "err_exit %%x\\n");
 
 static void
 err_exit(int a)
 {
-    DPRINTF((STR_exit(), a));
+    DPRINTF("err_exit %%x\\n", a);
     (void)a;  // debugging convenience
-    exit(127);
+    exit(a);
 }
 #endif  //}
 
@@ -262,22 +188,18 @@ typedef void f_unfilter(
 );
 typedef int f_expand(
     const nrv_byte *, nrv_uint,
-          nrv_byte *, nrv_uint *, unsigned );
-
-DEBUG_STRCON(STR_unpackExtent,
-        "unpackExtent in=%%p(%%x %%p)  out=%%p(%%x %%p)  %%p %%p\\n");
-DEBUG_STRCON(STR_err5, "sz_cpr=%%x  sz_unc=%%x  xo->size=%%x\\n");
+          nrv_byte *, size_t *, unsigned );
 
 static void
 unpackExtent(
     Extent *const xi,  // input
     Extent *const xo,  // output
-    f_expand *const f_decompress,
+    f_expand *const f_exp,
     f_unfilter *f_unf
 )
 {
-    DPRINTF((STR_unpackExtent(),
-        xi, xi->size, xi->buf, xo, xo->size, xo->buf, f_decompress, f_unf));
+    DPRINTF("unpackExtent in=%%p(%%x %%p)  out=%%p(%%x %%p)  %%p %%p\\n",
+        xi, xi->size, xi->buf, xo, xo->size, xo->buf, f_exp, f_unf);
     while (xo->size) {
         struct b_info h;
         //   Note: if h.sz_unc == h.sz_cpr then the block was not
@@ -298,7 +220,8 @@ ERR_LAB
         }
         if (h.sz_cpr > h.sz_unc
         ||  h.sz_unc > xo->size ) {
-            DPRINTF((STR_err5(), h.sz_cpr, h.sz_unc, xo->size));
+            DPRINTF("sz_cpr=%%x  sz_unc=%%x  xo->size=%%x\\n",
+                h.sz_cpr, h.sz_unc, xo->size);
             err_exit(5);
         }
         // Now we have:
@@ -307,8 +230,8 @@ ERR_LAB
         //   assert(h.sz_cpr > 0 && h.sz_cpr <= blocksize);
 
         if (h.sz_cpr < h.sz_unc) { // Decompress block
-            nrv_uint out_len = h.sz_unc;  // EOF for lzma
-            int const j = (*f_decompress)(xi->buf, h.sz_cpr,
+            size_t out_len = h.sz_unc;  // EOF for lzma
+            int const j = (*f_exp)(xi->buf, h.sz_cpr,
                 xo->buf, &out_len, h.b_method);
             if (j != 0 || out_len != (nrv_uint)h.sz_unc)
                 err_exit(7);
@@ -379,17 +302,21 @@ typedef struct {
     unsigned ncmds;
     unsigned sizeofcmds;
     unsigned flags;
-    unsigned reserved;
-} Mach_header64;
+#if defined(__x86_64__) || defined(__aarch64__)  //{
+    unsigned reserved;  // for 64-bit alignment
+#endif  //}
+} Mach_header;  // also Mach_header64 which has 4 more bytes
         enum e0 {
             MH_MAGIC   =   0xfeedface,
             MH_MAGIC64 = 1+0xfeedface
         };
         enum e2 {
-            MH_EXECUTE = 2
+            MH_EXECUTE = 2,
+            MH_DYLINKER= 7     /* /usr/bin/dyld */
         };
         enum e3 {
             MH_NOUNDEFS = 1
+            , MH_PIE      = 0x200000   // ASLR
         };
 
 typedef struct {
@@ -397,8 +324,8 @@ typedef struct {
     unsigned cmdsize;
 } Mach_load_command;
         enum e4 {
-            LC_SEGMENT       = 0x1,
-            LC_SEGMENT_64    = 0x19,
+//            LC_SEGMENT       = 0x1,
+//            LC_SEGMENT_64    = 0x19,
             LC_THREAD        = 0x4,
             LC_UNIXTHREAD    = 0x5,
             LC_LOAD_DYLINKER = 0xe
@@ -424,12 +351,68 @@ typedef struct {
         };
 
 typedef struct {
+    char sectname[16];
+    char segname[16];
+    uint64_t addr;   /* memory address */
+    uint64_t size;   /* size in bytes */
+    unsigned offset; /* file offset */
+    unsigned align;  /* power of 2 */
+    unsigned reloff; /* file offset of relocation entries */
+    unsigned nreloc; /* number of relocation entries */
+    unsigned flags;  /* section type and attributes */
+    unsigned reserved1;  /* for offset or index */
+    unsigned reserved2;  /* for count or sizeof */
+} Mach_section_command;
+
+typedef struct {
     uint32_t cmd;  // LC_MAIN;  MH_EXECUTE only
     uint32_t cmdsize;  // 24
     uint64_t entryoff;  // file offset of main() [expected in __TEXT]
     uint64_t stacksize;  // non-default initial stack size
 } Mach_main_command;
 
+#if defined(__aarch64__)  // {
+typedef struct {
+    uint64_t x0,  x1,  x2,  x3;
+    uint64_t x4,  x5,  x6,  x7;
+    uint64_t x8,  x9,  x10, x11;
+    uint64_t x12, x13, x14, x15;
+    uint64_t x16, x17, x18, x19;
+    uint64_t x20, x21, x22, x23;
+    uint64_t x24, x25, x26, x27;
+    uint64_t x28, fp,  lr,  sp;
+    uint64_t pc;
+    uint32_t cpsr;
+} Mach_thread_state;  // Mach_ARM64_thread_state
+        enum e6 {
+            THREAD_STATE = 4  // ARM64_THREAD_STATE
+        };
+        enum e7 {
+            THREAD_STATE_COUNT = sizeof(Mach_thread_state)/4
+        };
+        enum e10 {
+            LC_SEGMENT       = 0x19  // LC_SEGMENT_64
+        };
+
+#elif defined(__arm__)  //}{
+typedef struct {
+    uint32_t r[13];  // r0-r12
+    uint32_t sp;  // r13
+    uint32_t lr;  // r14
+    uint32_t pc;  // r15
+    uint32_t cpsr;
+} Mach_thread_state;  // Mach_ARM_thead_state;
+        enum e6 {
+            THREAD_STATE = 1  // ARM_THREAD_STATE
+        };
+        enum e7 {
+            THREAD_STATE_COUNT = sizeof(Mach_thread_state)/4
+        };
+        enum e10 {
+            LC_SEGMENT       = 0x1
+        };
+
+#elif defined(__x86_64__)  //}{
 typedef struct {
     uint64_t rax, rbx, rcx, rdx;
     uint64_t rdi, rsi, rbp, rsp;
@@ -437,21 +420,26 @@ typedef struct {
     uint64_t r12, r13, r14, r15;
     uint64_t rip, rflags;
     uint64_t cs, fs, gs;
-} Mach_AMD64_thread_state;
+} Mach_thread_state;  // Mach_AMD64_thread_state;
+        enum e6 {
+            THREAD_STATE = 4  // AMD_THREAD_STATE
+        };
+        enum e7 {
+            THREAD_STATE_COUNT = sizeof(Mach_thread_state)/4
+        };
+        enum e10 {
+            LC_SEGMENT       = 0x19  // LC_SEGMENT_64
+        };
+
+#endif  //}
 
 typedef struct {
     unsigned cmd;            /* LC_THREAD or  LC_UNIXTHREAD */
     unsigned cmdsize;        /* total size of this command */
     unsigned flavor;
     unsigned count;          /* sizeof(following_thread_state)/4 */
-    Mach_AMD64_thread_state state;
+    Mach_thread_state state;
 } Mach_thread_command;
-        enum e6 {
-            AMD64_THREAD_STATE = 4  // x86_THREAD_STATE64
-        };
-        enum e7 {
-            AMD64_THREAD_STATE_COUNT = sizeof(Mach_AMD64_thread_state)/4
-        };
 
 typedef union {
     unsigned offset;  /* from start of load command to string */
@@ -459,129 +447,259 @@ typedef union {
 
 #define MAP_FIXED     0x10
 #define MAP_PRIVATE   0x02
-#define MAP_ANON    0x1000
-//#define MAP_ANON  0x20  // x86 DEBUG ONLY
+
+#if SIMULATE_ON_LINUX_EABI4  //{
+#define MAP_ANON  0x20  /* SIMULATE_ON_LINUX_EABI4 */
+#else  //}{
+#define MAP_ANON    0x1000  /* native darwin usual case */
+#endif  //}
+#define MAP_ANON_FD    -1
+
+#define PROT_NONE      0
 #define PROT_READ      1
 #define PROT_WRITE     2
 #define PROT_EXEC      4
-#define MAP_ANON_FD    -1
 
-extern void *mmap(void *, size_t, unsigned, unsigned, int, off_t);
-ssize_t pread(int, void *, size_t, off_t);
+extern void *mmap(void *, size_t, unsigned, unsigned, int, off_t_upx_stub);
+ssize_t pread(int, void *, size_t, off_t_upx_stub);
 extern void bswap(void *, unsigned);
 
-DEBUG_STRCON(STR_mmap,
-    "mmap  addr=%%p  len=%%p  prot=%%x  flags=%%x  fd=%%d  off=%%p\\n");
-DEBUG_STRCON(STR_do_xmap,
-    "do_xmap  fdi=%%x  mhdr=%%p  xi=%%p(%%x %%p) f_unf=%%p\\n")
+typedef size_t Addr;  // this source file is used by 32-bit and 64-bit machines
 
-static Mach_AMD64_thread_state const *
+// Find convex hull of PT_LOAD (the minimal interval which covers all PT_LOAD),
+// and mmap that much, to be sure that a kernel using exec-shield-randomize
+// won't place the first piece in a way that leaves no room for the rest.
+static Addr // returns relocation constant
+xfind_pages(
+    Mach_header const *const mhdr,
+    Mach_segment_command const *sc,
+    int const ncmds,
+    Addr addr
+)
+{
+    Addr lo= ~(Addr)0, hi= 0;
+    int j;
+    unsigned mflags = ((mhdr->filetype == MH_DYLINKER || mhdr->flags & MH_PIE) ? 0 : MAP_FIXED);
+    mflags += MAP_PRIVATE | MAP_ANON;  // '+' can optimize better than '|'
+    DPRINTF("xfind_pages  mhdr=%%p  sc=%%p  ncmds=%%d  addr=%%p  mflags=%%x\\n",
+        mhdr, sc, ncmds, addr, mflags);
+    for (j=0; j < ncmds; ++j,
+        (sc = (Mach_segment_command const *)((sc->cmdsize>>2) + (unsigned const *)sc))
+    ) if (LC_SEGMENT==sc->cmd) {
+        DPRINTF("  #%%d  cmd=%%x  cmdsize=%%x  vmaddr=%%p  vmsize==%%p  lo=%%p  mflags=%%x\\n",
+            j, sc->cmd, sc->cmdsize, sc->vmaddr, sc->vmsize, lo, mflags);
+        if (sc->vmsize  // theoretically occupies address space
+        &&  !(sc->vmaddr==0 && (MAP_FIXED & mflags))  // but ignore PAGEZERO when MAP_FIXED
+        ) {
+            if (mhdr->filetype == MH_DYLINKER  // /usr/lib/dyld
+            &&  0==(1+ lo)  // 1st LC_SEGMENT
+            &&  sc->vmaddr != 0  // non-floating address
+            ) {
+                // "pre-linked" dyld on MacOS 10.11.x El Capitan
+                mflags |= MAP_FIXED;
+            }
+            if (lo > sc->vmaddr) {
+                lo = sc->vmaddr;
+            }
+            if (hi < (sc->vmsize + sc->vmaddr)) {
+                hi =  sc->vmsize + sc->vmaddr;
+            }
+        }
+    }
+    lo -= ~PAGE_MASK & lo;  // round down to page boundary
+    hi  =  PAGE_MASK & (hi - lo - PAGE_MASK -1);  // page length
+    DPRINTF("  addr=%%p  lo=%%p  len=%%p  mflags=%%x\\n", addr, lo, hi, mflags);
+    if (MAP_FIXED & mflags) {
+        addr = lo;
+        int rv = munmap((void *)addr, hi);
+        if (rv) {
+            DPRINTF("munmap addr=%%p len=%%p, rv=%%x\\n", addr, hi, rv);
+        }
+    }
+    addr = (Addr)mmap((void *)addr, hi, PROT_NONE, mflags, MAP_ANON_FD, 0);
+    DPRINTF("  addr=%%p\\n", addr);
+    if (~PAGE_MASK & addr) {
+        err_exit(6);
+    }
+    return (Addr)(addr - lo);
+}
+
+unsigned * // &hatch if main; &Mach_thread_state if dyld
 do_xmap(
-    Mach_header64 const *const mhdr,
-    off_t const fat_offset,
+    Mach_header *const mhdr,
+    off_t_upx_stub const fat_offset,
     Extent *const xi,
     int const fdi,
-    Mach_header64 **mhdrpp,
-    f_expand *const f_decompress,
+    Mach_header **mhdrpp,
+    f_expand *const f_exp,
     f_unfilter *const f_unf
 )
 {
-    Mach_segment_command const *sc = (Mach_segment_command const *)(1+ mhdr);
-    Mach_AMD64_thread_state const *entry = 0;
+    DPRINTF("do_xmap  fdi=%%x  mhdr=%%p  *mhdrpp=%%p  xi=%%p(%%x %%p) f_unf=%%p\\n",
+        fdi, mhdr, (mhdrpp ? *mhdrpp : 0), xi, (xi? xi->size: 0), (xi? xi->buf: 0), f_unf);
+
+    unsigned *rv = 0;
+    Mach_segment_command *sc = (Mach_segment_command *)(1+ mhdr);
+    Addr const reloc = xfind_pages(mhdr, sc, mhdr->ncmds, 0);
+    DPRINTF("do_xmap reloc=%%p\\n", reloc);
     unsigned j;
-
-    DPRINTF((STR_do_xmap(),
-        fdi, mhdr, xi, (xi? xi->size: 0), (xi? xi->buf: 0), f_unf));
-
     for ( j=0; j < mhdr->ncmds; ++j,
-        (sc = (Mach_segment_command const *)(sc->cmdsize + (void const *)sc))
-    ) if (LC_SEGMENT_64==sc->cmd && sc->vmsize!=0) {
-        Extent xo;
-        size_t mlen = xo.size = sc->filesize;
-        unsigned char  *addr = xo.buf  =        (unsigned char *)sc->vmaddr;
-        unsigned char *haddr =           sc->vmsize +                  addr;
-        size_t frag = (int)(uint64_t)addr &~ PAGE_MASK;
-        addr -= frag;
-        mlen += frag;
+        (sc = (Mach_segment_command *)((sc->cmdsize>>2) + (unsigned *)sc))
+    ) {
+        DPRINTF("  #%%d  cmd=%%x  cmdsize=%%x  vmsize=%%x\\n",
+                j, sc->cmd, sc->cmdsize, sc->vmsize);
+        if (LC_SEGMENT==sc->cmd && !sc->vmsize) {
+            // Typical __DWARF info segment for 'rust'
+            struct b_info h;
+            xread(xi, (unsigned char *)&h, sizeof(h));
+            DPRINTF("    0==.vmsize; skipping %%x\\n", h.sz_cpr);
+            xi->buf += h.sz_cpr;
+        }
+        if (LC_SEGMENT==sc->cmd && sc->vmsize) {
+            Extent xo;
+            size_t mlen = xo.size = sc->filesize;
+                          xo.buf  = (void *)(reloc + sc->vmaddr);
+            Addr  addr = (Addr)xo.buf;
+            Addr haddr = sc->vmsize + addr;
+            size_t frag = addr &~ PAGE_MASK;
+            addr -= frag;
+            mlen += frag;
 
-        if (0!=mlen) {
-            // Decompressor can overrun the destination by 3 bytes.  [x86 only]
-            size_t const mlen3 = mlen + (xi ? 3 : 0);
-            unsigned const prot = VM_PROT_READ | VM_PROT_WRITE;
-            unsigned const flags = MAP_FIXED | MAP_PRIVATE |
-                        ((xi || 0==sc->filesize) ? MAP_ANON : 0);
-            int const fdm = ((0==sc->filesize) ? MAP_ANON_FD : fdi);
-            off_t const offset = sc->fileoff + fat_offset;
+            DPRINTF("    mlen=%%p  frag=%%p  addr=%%p\\n", mlen, frag, addr);
+            if (0!=mlen) {
+                size_t const mlen3 = mlen
+    #if defined(__x86_64__)  //{
+                    // Decompressor can overrun the destination by 3 bytes.  [x86 only]
+                    + (xi ? 3 : 0)
+    #endif  //}
+                    ;
+                unsigned const prot = VM_PROT_READ | VM_PROT_WRITE;
+                // MAP_FIXED: xfind_pages() reserved them, so use them!
+                unsigned const flags = MAP_FIXED | MAP_PRIVATE |
+                                ((xi || 0==sc->filesize) ? MAP_ANON    : 0);
+                int const fdm = ((xi || 0==sc->filesize) ? MAP_ANON_FD : fdi);
+                off_t_upx_stub const offset = sc->fileoff + fat_offset;
 
-            DPRINTF((STR_mmap(), addr, mlen3, prot, flags, fdm, offset));
-            if (addr !=     mmap(addr, mlen3, prot, flags, fdm, offset)) {
-                err_exit(8);
+                DPRINTF("mmap  addr=%%p  len=%%p  prot=%%x  flags=%%x  fd=%%d  off=%%p  reloc=%%p\\n",
+                    addr, mlen3, prot, flags, fdm, offset, reloc);
+                {
+                    Addr maddr = (Addr)mmap((void *)addr, mlen3, prot, flags, fdm, offset);
+                    DPRINTF("maddr=%%p\\n", maddr);
+                    if (maddr != addr) {
+                        err_exit(8);
+                    }
+                    addr = maddr;
+                }
+                if (!*mhdrpp) { // MH_DYLINKER
+                    *mhdrpp = (Mach_header*)addr;
+                }
+            }
+            if (xi && 0!=sc->filesize) {
+                if (0==sc->fileoff /*&& 0!=mhdrpp*/) {
+                    *mhdrpp = (Mach_header *)(void *)addr;
+                }
+                unpackExtent(xi, &xo, f_exp, f_unf);
+            }
+            DPRINTF("xi=%%p  mlen=%%p  fileoff=%%p  nsects=%%d\\n",
+                xi, mlen, sc->fileoff, sc->nsects);
+            if (xi && mlen && !sc->fileoff && sc->nsects) {
+                // main target __TEXT segment at beginning of file with sections (__text)
+                // Use upto 2 words of header padding for the escape hatch.
+                // fold.S could do this easier, except PROT_WRITE is missing then.
+                union {
+                    unsigned char  *p0;
+                    unsigned short *p1;
+                    unsigned int   *p2;
+                    unsigned long  *p3;
+                } u;
+                u.p0 = (unsigned char *)addr;
+                Mach_segment_command *segp = (Mach_segment_command *)((((char *)sc - (char *)mhdr)>>2) + u.p2);
+                Mach_section_command *const secp = (Mach_section_command *)(1+ segp);
+    #if defined(__aarch64__)  //{
+                unsigned *hatch= -2+ (secp->offset>>2) + u.p2;
+                hatch[0] = 0xd4000001;  // svc #0  // syscall
+                hatch[1] = 0xd65f03c0;  // ret
+    #elif defined(__arm__)  //}{
+                unsigned *hatch= -2+ (secp->offset>>2) + u.p2;
+                hatch[0] = 0xef000000;  // svc 0x0  // syscall
+                hatch[1] = 0xe12fff1e;  // bx lr
+    #elif defined(__x86_64__)  //}{
+                unsigned *hatch= -1+ (secp->offset>>2) + u.p2;
+                hatch[0] = 0xc3050f90;  // nop; syscall; ret
+    #endif  //}
+                DPRINTF("hatch=%%p  secp=%%p  segp=%%p  mhdr=%%p\\n", hatch, secp, segp, addr);
+                rv = hatch;
+            }
+            /*bzero(addr, frag);*/  // fragment at lo end
+            frag = (-mlen) &~ PAGE_MASK;  // distance to next page boundary
+            bzero((void *)(mlen+addr), frag);  // fragment at hi end
+            if (0!=mlen && 0!=mprotect((void *)addr, mlen, sc->initprot)) {
+                err_exit(10);
+    ERR_LAB
+            }
+            addr += mlen + frag;  /* page boundary on hi end */
+            if (
+    #if SIMULATE_ON_LINUX_EABI4  /*{*/
+                0!=addr &&
+    #endif  /*}*/
+                            addr < haddr) { // need pages for .bss
+                if (0!=addr && addr != (Addr)mmap((void *)addr, haddr - addr, sc->initprot,
+                        MAP_FIXED | MAP_PRIVATE | MAP_ANON, MAP_ANON_FD, 0 ) ) {
+                    err_exit(9);
+                }
+            }
+            else if (xi) { // cleanup if decompressor overrun crosses page boundary
+                mlen = ~PAGE_MASK & (3+ mlen);
+                if (mlen<=3) { // page fragment was overrun buffer only
+                    DPRINTF("munmap  %%x  %%x\\n", addr, mlen);
+                    munmap((char *)addr, mlen);
+                }
             }
         }
-        if (xi && 0!=sc->filesize) {
-            if (0==sc->fileoff /*&& 0!=mhdrpp*/) {
-                *mhdrpp = (Mach_header64 *)(void *)addr;
-            }
-            unpackExtent(xi, &xo, f_decompress, f_unf);
-        }
-        /*bzero(addr, frag);*/  // fragment at lo end
-        frag = (-mlen) &~ PAGE_MASK;  // distance to next page boundary
-        bzero(mlen+addr, frag);  // fragment at hi end
-        if (0!=mlen && 0!=mprotect(addr, mlen, sc->initprot)) {
-            err_exit(10);
-ERR_LAB
-        }
-        addr += mlen + frag;  /* page boundary on hi end */
-        if (
-#if defined(SIMULATE_ON_DEBIAN_EABI4)  /*{*/
-            0!=addr &&
-#endif  /*}*/
-                        addr < haddr) { // need pages for .bss
-            if (0!=addr && addr != mmap(addr, haddr - addr, sc->initprot,
-                    MAP_FIXED | MAP_PRIVATE | MAP_ANON, MAP_ANON_FD, 0 ) ) {
-                err_exit(9);
-            }
-        }
-        else if (xi) { // cleanup if decompressor overrun crosses page boundary
-            mlen = ~PAGE_MASK & (3+ mlen);
-            if (mlen<=3) { // page fragment was overrun buffer only
-                munmap((char *)addr, mlen);
+        else if (!xi  // dyld
+        && (LC_UNIXTHREAD==sc->cmd || LC_THREAD==sc->cmd)) {
+            Mach_thread_command *const thrc = (Mach_thread_command *)sc;
+            DPRINTF("thread_command= %%p\\n", sc);
+            if (1
+            // FIXME  THREAD_STATE      ==thrc->flavor
+            //    &&  THREAD_STATE_COUNT==thrc->count
+            ) {
+                DPRINTF("thread_state= %%p  flavor=%%d  count=%%x  reloc=%%p\\n",
+                    &thrc->state, thrc->flavor, thrc->count, reloc);
+    #if defined(__aarch64__)  //{
+                thrc->state.pc += reloc;
+    #elif defined(__arm__)  //}{
+                thrc->state.pc += reloc;
+    #elif defined(__x86_64__)  //}{
+                thrc->state.rip += reloc;
+    #endif  //}
+                rv = (unsigned *)&thrc->state;
             }
         }
     }
-    else if (LC_UNIXTHREAD==sc->cmd || LC_THREAD==sc->cmd) {
-        Mach_thread_command const *const thrc = (Mach_thread_command const *)sc;
-        if (AMD64_THREAD_STATE      ==thrc->flavor
-        &&  AMD64_THREAD_STATE_COUNT==thrc->count ) {
-            entry = &thrc->state;
-        }
-    }
-    return entry;
+    DPRINTF("do_xmap= %%p\\n", rv);
+    return rv;
 }
 
 
 /*************************************************************************
-// upx_main - called by our entry code
+// upx_main - called by our unfolded entry code
 //
 **************************************************************************/
-
-DEBUG_STRCON(STR_upx_main,
-    "upx_main szc=%%x  f_dec=%%p  f_unf=%%p  "
-    "  xo=%%p(%%x %%p)  xi=%%p(%%x %%p)  mhdrpp=%%p\\n")
-
-Mach_AMD64_thread_state const *
+Mach_thread_state const *
 upx_main(
     struct l_info const *const li,
     size_t volatile sz_compressed,  // total length
-    Mach_header64 *const mhdr,  // temp char[sz_mhdr] for decompressing
+    Mach_header *const mhdr,  // temp char[sz_mhdr] for decompressing
     size_t const sz_mhdr,
-    f_expand *const f_decompress,
+    f_expand *const f_exp,
     f_unfilter *const f_unf,
-    Mach_header64 **const mhdrpp  // Out: *mhdrpp= &real Mach_header64
+    Mach_header **const mhdrpp  // Out: *mhdrpp= &real Mach_header
 )
 {
-    Mach_AMD64_thread_state const *entry;
-    off_t fat_offset = 0;
+    Mach_thread_state *ts = 0;
+    unsigned *hatch;
+    off_t_upx_stub fat_offset = 0;
     Extent xi, xo, xi0;
     xi.buf  = CONST_CAST(unsigned char *, 1+ (struct p_info const *)(1+ li));  // &b_info
     xi.size = sz_compressed - (sizeof(struct l_info) + sizeof(struct p_info));
@@ -589,14 +707,16 @@ upx_main(
     xo.size = ((struct b_info const *)(void const *)xi.buf)->sz_unc;
     xi0 = xi;
 
-    DPRINTF((STR_upx_main(),
-        sz_compressed, f_decompress, f_unf, &xo, xo.size, xo.buf,
-        &xi, xi.size, xi.buf, mhdrpp));
+    DPRINTF("upx_main szc=%%x  f_exp=%%p  f_unf=%%p  "
+        "  xo=%%p(%%x %%p)  xi=%%p(%%x %%p)  mhdrpp=%%p  mhdrp=%%p\\n",
+        sz_compressed, f_exp, f_unf, &xo, xo.size, xo.buf,
+        &xi, xi.size, xi.buf, mhdrpp, *mhdrpp);
 
     // Uncompress Macho headers
-    unpackExtent(&xi, &xo, f_decompress, 0);  // never filtered?
+    unpackExtent(&xi, &xo, f_exp, 0);  // never filtered?
 
-    entry = do_xmap(mhdr, fat_offset, &xi0, MAP_ANON_FD, mhdrpp, f_decompress, f_unf);
+    // Overwrite the OS-chosen address space at *mhdrpp.
+    hatch = do_xmap(mhdr, fat_offset, &xi0, MAP_ANON_FD, mhdrpp, f_exp, f_unf);
 
   { // Map dyld dynamic loader
     Mach_load_command const *lc = (Mach_load_command const *)(1+ mhdr);
@@ -607,6 +727,7 @@ upx_main(
     ) if (LC_LOAD_DYLINKER==lc->cmd) {
         char const *const dyld_name = ((Mach_lc_str const *)(1+ lc))->offset +
             (char const *)lc;
+        DPRINTF("dyld= %%s\\n", dyld_name);
         int const fdi = open(dyld_name, O_RDONLY, 0);
         if (0 > fdi) {
             err_exit(18);
@@ -633,13 +754,136 @@ ERR_LAB
             }
         } break;
         } // switch
-        entry = do_xmap(mhdr, fat_offset, 0, fdi, 0, 0, 0);
+        Mach_header *dyhdr = 0;
+        ts = (Mach_thread_state *)do_xmap(mhdr, fat_offset, 0, fdi, &dyhdr, 0, 0);
+            DPRINTF("ts= %%p  hatch=%%p\\n", ts, hatch);
+#if defined(__aarch64__)  // {
+            ts->x0 = (uint64_t)hatch;
+#elif defined(__arm__)  //}{
+            ts->r[0] = (uint32_t)hatch;
+#elif defined(__x86_64__)  //}{
+            ts->rax = (uint64_t)hatch;
+#endif  //}
         close(fdi);
         break;
     }
   }
 
-    return entry;
+    return ts;
 }
+
+#if DEBUG  //{
+
+static int
+unsimal(unsigned x, char *ptr, int n)
+{
+    unsigned m = 10;
+    while (10 <= (x / m)) m *= 10;
+    while (10 <= x) {
+        unsigned d = x / m;
+    x -= m * d;
+        m /= 10;
+        ptr[n++] = '0' + d;
+    }
+    ptr[n++] = '0' + x;
+    return n;
+}
+
+static int
+decimal(int x, char *ptr, int n)
+{
+    if (x < 0) {
+        x = -x;
+        ptr[n++] = '-';
+    }
+    return unsimal(x, ptr, n);
+}
+
+static int
+heximal(unsigned long x, char *ptr, int n)
+{
+    unsigned j = -1+ 2*sizeof(unsigned long);
+    unsigned long m = 0xful << (4 * j);
+    for (; j; --j, m >>= 4) { // omit leading 0 digits
+        if (m & x) break;
+    }
+    for (; m; --j, m >>= 4) {
+        unsigned d = 0xf & (x >> (4 * j));
+        ptr[n++] = ((10<=d) ? ('a' - 10) : '0') + d;
+    }
+    return n;
+}
+
+#define va_arg      __builtin_va_arg
+#define va_end      __builtin_va_end
+#define va_list     __builtin_va_list
+#define va_start    __builtin_va_start
+
+static int
+dprintf(char const *fmt, ...)
+{
+    int n= 0;
+    char const *literal = 0;  // NULL
+    char buf[24];  // ~0ull == 18446744073709551615 ==> 20 chars
+    va_list va; va_start(va, fmt);
+    for (;;) {
+        char c = *fmt++;
+        if (!c) { // end of fmt
+            if (literal) {
+                goto finish;
+            }
+            break;  // goto done
+        }
+        if ('%'!=c) {
+            if (!literal) {
+                literal = fmt;  // 1 beyond start of literal
+            }
+            continue;
+        }
+        // '%' == c
+        if (literal) {
+finish:
+            n += write(2, -1+ literal, fmt - literal);
+            literal = 0;  // NULL
+            if (!c) { // fmt already ended
+               break;  // goto done
+            }
+        }
+        switch (c= *fmt++) { // deficiency: does not handle _long_
+        default: { // un-implemented conversion
+            n+= write(2, -1+ fmt, 1);
+        } break;
+        case 0: { // fmt ends with "%\0" ==> ignore
+            goto done;
+        } break;
+        case 'u': {
+            n+= write(2, buf, unsimal(va_arg(va, unsigned), buf, 0));
+        } break;
+        case 'd': {
+            n+= write(2, buf, decimal(va_arg(va, int), buf, 0));
+        } break;
+        case 'p': {
+            buf[0] = '0';
+            buf[1] = 'x';
+            n+= write(2, buf, heximal((unsigned long)va_arg(va, void *), buf, 2));
+        } break;
+        case 'x': {
+            buf[0] = '0';
+            buf[1] = 'x';
+            n+= write(2, buf, heximal(va_arg(va, unsigned int), buf, 2));
+        } break;
+        case 's': {
+            char *s0= (char *)va_arg(va, unsigned char *), *s= s0;
+            if (s) while (*s) ++s;
+            n+= write(2, s0, s - s0);
+        } break;
+        } // 'switch'
+    }
+done:
+    va_end(va);
+    return n;
+}
+
+#endif  //}
 
 /* vim:set ts=4 sw=4 et: */

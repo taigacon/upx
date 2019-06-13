@@ -3,7 +3,7 @@
 ;
 ;  This file is part of the UCL data compression library.
 ;
-;  Copyright (C) 1996-2017 Markus Franz Xaver Johannes Oberhumer
+;  Copyright (C) 1996-2019 Markus Franz Xaver Johannes Oberhumer
 ;  All Rights Reserved.
 ;
 ;  The UCL library is free software; you can redistribute it and/or
@@ -35,6 +35,10 @@
         .align  0
 .endm
 
+/* http://math-atlas.sourceforge.net/devel/assembly/mipsabi32.pdf
+ *   When calling position independent functions $25 must contain
+ *   the address of the called function.  [$25 === $t9 === $jp]
+ */
 #define zero    $0
 #define at      $1
 #define v0      $2

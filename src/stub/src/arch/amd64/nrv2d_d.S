@@ -2,9 +2,9 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 1996-2017 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2017 Laszlo Molnar
-   Copyright (C) 2000-2017 John F. Reiser
+   Copyright (C) 1996-2019 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2019 Laszlo Molnar
+   Copyright (C) 2000-2019 John F. Reiser
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -30,10 +30,9 @@
 */
 
 #ifndef NO_METHOD_CHECK
-        cmpb $ M_NRV2D_LE32,methb; je top_n2d; jmp not_n2d
-#else
-        jmp top_n2d
+        cmpb $ M_NRV2D_LE32,methb; jne not_n2d
 #endif
+        jmp top_n2d
 
 lit_n2d:
         incq %rsi; movb %dl,(%rdi)
@@ -74,7 +73,10 @@ gotlen_n2d:
 bot_n2d:  // In: 0==len
         jmp top_n2d
 
+#ifndef NO_METHOD_CHECK
 not_n2d:
+        push %rdi; pop %rsi  # src = arg1
+#endif
 
 /*
 vi:ts=8:et:nowrap

@@ -2,9 +2,9 @@
 *
 *  This file is part of the UPX executable compressor.
 *
-*  Copyright (C) 1996-2015 Markus Franz Xaver Johannes Oberhumer
-*  Copyright (C) 1996-2015 Laszlo Molnar
-*  Copyright (C) 2000-2015 John F. Reiser
+*  Copyright (C) 1996-2019 Markus Franz Xaver Johannes Oberhumer
+*  Copyright (C) 1996-2019 Laszlo Molnar
+*  Copyright (C) 2000-2019 John F. Reiser
 *  All Rights Reserved.
 *
 *  UPX and the UCL library are free software; you can redistribute them
@@ -30,10 +30,11 @@
 */
 
 #include "arch/arm64/v8/macros.S"
+NBPW= 8
 
 sz_Elf64_Phdr= 56
 sz_Elf64_Ehdr= 64
-e_phnum= 16 + 2*2 + 4 + 3*8 + 4 + 2*2
+e_phnum= 16 + 2*2 + 4 + 3*NBPW + 4 + 2*2
 
 sz_b_info= 12
   sz_unc= 0
@@ -43,218 +44,103 @@ sz_l_info= 12
 sz_p_info= 12
 sz_o_binfo= 4
 
+sz_b_info= 12
+  sz_unc= 0
+  sz_cpr= 4
+  b_method= 8
+
+AT_NULL= 0  // <elf.h>
+AT_PAGESZ= 6
+a_type= 0
+a_val= NBPW
+sz_auxv= 2*NBPW
+
+AT_FDCWD= -100  // <fcntl.h>
+O_RDONLY=  0
+
 PROT_READ=  1
 PROT_WRITE= 2
 PROT_EXEC=  4
 
+MAP_PRIVATE= 2
 MAP_FIXED=     0x10
+MAP_ANONYMOUS= 0x20
 
-PAGE_SHIFT= 12
+PAGE_SHIFT= 16  // 64KiB PAGE_SIZE
 PAGE_SIZE = -(~0<<PAGE_SHIFT)
 
-__NR_exit =   93
-__NR_write =  64
-__NR_mmap64 = 222
-
-__ARM_NR_cacheflush =  255  // FIXME
+// /usr/include/asm-generic/unistd.h
+__NR_exit     = 0x5d  //  93
+__NR_mmap     = 0xde  // 222
+__NR_mprotect = 0xe2  // 226
+__NR_munmap   = 0xd7  // 215
+__NR_openat   = 0x38  //  56
+__NR_write    = 0x40  //  64
 
 #ifndef DEBUG  /*{*/
 #define DEBUG 0
 #endif  /*}*/
 #if DEBUG  //{
-#define TRACE(arg) stp lr,x0,[sp,#-2*8]!; mov x0,arg; bl trace; ldr lr,[sp],#2*8
+#define TRACE(arg) \
+        stp lr,x0,[sp,#-2*NBPW]!; mov x0,arg; bl trace; \
+        ldp lr,x0,[sp],#2*NBPW
 #else  //}{
 #define TRACE(arg) /*empty*/
 #endif  //}
 
+//lr   .req x30
+wLENU  .req w29
+  xLENU  .req x29
+xADRU  .req x28
+wfd    .req w27
+  xfd    .req x27
+xPMASK .req x26
+  // The above 4 registers are passed on stack to unfolded code.
 
-        //.long sz_pack2  // placed there by ::pack3()
+xelfa  .req x25
+xfexp  .req x24
+  // xPMASK, xelfa, xfexp still are used here.
+
+wLENM  .req w29  // overlaps wLENU
+  xLENM  .req x29
+  wLENX  .req wLENM
+xADRM  .req x28  // overlaps xADRU
+  xADRX  .req xADRM
+wobinf .req w27  // overlaps wfd
+
+xrelo  .req x23
+xauxv  .req x22
+wszuf  .req w21
+  xszuf  .req x21
+xFOLD  .req x20
+
+// http://infocenter.arm.com/help/topic/com.arm.doc.ihi0055b/IHI0055B_aapcs64.pdf
+// x18 is CLOBBERED: "The platform register"
+
+wmeth  .req w4
+xmeth  .req x4
+ldst   .req x3
+ dst   .req x2
+lsrc   .req w1
+ src   .req x0
+
+#define call bl
+#define callr blr
+#define jr br
+
   section ELFMAINX
-start_params:
-        .long LENF  // end_decompress - (start_params -4)
-        .long CPR0  //           cpr0 - (start_params -4)
+sz_pack2= .-4  // placed there by ::pack3()
 mflg:
         .long MFLG  // MAP_{PRIVATE|ANONYMOUS}  // QNX vs linux
-        .xword ADRM  // dst  for map
 _start: .globl _start
-////    brk #0  // DEBUG
-/* Get some pages: enough
-   to duplicate the entire compressed PT_LOAD, plus 1 page, located just after
-   the brk() of the _un_compressed program.  The address is pre-calculated
-   calculated by PackLinuxElf64arm::addLinkerSymbols().
-*/
-
 #if DEBUG  /*{*/
     brk #0
         TRACE(#0)
 #endif  /*}*/
+        call main
 
-        adr x12,start_params -4  // &sz_pack2
-        ldp w29,w10,[x12]  // w29= sz_pack2; w10= LENF
-        ldp w11,w3,[x12,#2*4]  // w11= CPRO; w3= MFLG
-        add x11,x11,x12  // cpr0
-        ldr x0,[x12,#4*4]  // ADRM
-        add x10,x10,x12  // end_decompress
-        ldr w4,[x11,# sz_unc]
-        ldr w27,[x11,#o_binfo - cpr0]  // O_BINFO
-        sub x26,x12,w29,uxtw  // &our_Elf64_Ehdr
-        add x27,x27,x26  // &b_info for Elf64_Ehdr
-        add w1,w29,w4  // sz_pack2 + cpr0.sz_unc
-        add x1,x1,# PAGE_SIZE
-
-// It would be nice to choose a random address (x0= 0; x3 &~ MAP_FIXED).
-// But the kernel might put the region in the "hole" between compressed .text
-// and brk(0).  The compressor could layout PT_LOAD[1] to cover that
-// entire region, but that might leave a mapping that covers a deliberate
-// hole between .text and .data.  [Can be fixed with PROT_NONE for .p_flags ?]
-  section ELFMAINXu
-        mov w2,#PROT_READ | PROT_WRITE | PROT_EXEC
-        orr w3,w3,#MAP_FIXED  // MFLG: MAP_{PRIVATE|ANON}
-        mov x5,#0  // offset= 0
-        mov w4,#-1  // fd= -1; cater to *BSD for fd when MAP_ANON
-        do_sys __NR_mmap64
-        PUSH4(x0,x1,x2,x3)  // ADRU, LENU, space for sz_unc, MFLG
-SP_MFLG= 3*8
-D_sz_unc=2*8  // stack displacement to sz_unc
-#if DEBUG  /*{*/
-        TRACE(#2)
-#endif  /*}*/
-        cmn x0,#4096
-        bcs msg_SELinux
-        mov x9,x26  // &our_Elf64_Ehdr
-copy_cl:  // copy decompressor and folded code
-          add x5,x0,#64;  // FIXME(memcheck) dc zva,x5  // clear FOLLOWING 64-byte line
-        ldp x1,x2,[x9],#2*8
-        ldp x3,x4,[x9],#2*8
-        stp x1,x2,[x0],#2*8
-        stp x3,x4,[x0],#2*8
-
-        ldp x1,x2,[x9],#2*8
-        ldp x3,x4,[x9],#2*8
-        stp x1,x2,[x0],#2*8
-        stp x3,x4,[x0],#2*8
-        cmp x9,x10
-          sub x5,x9,#64; // FIXME(memcheck) dc cvau,x5  // clean 64-byte line
-        blo copy_cl  // all source lines
-
-        ldr w1,[sp,#SP_MFLG]
-        sub x4,x0,x9  // relocation amount
-        str w1,[x0],#4  // MFLG at -4+ fold_begin
-        adr x15,f_decompress
-        mov lr,x0  // dst for unfolded code
-        adr x28,f_decompress
-        add x28,x28,x4  // relocated f_decompress
-        add x27,x27,x4  // relocated &b_info
-
-        ldr w4,[x11,# b_method]  // 5th param (whole word: endian issues!)
-D_stm1=0*8
-        ldr  w3,[x11,# sz_unc]
-        add  x0, x11,# sz_b_info
-        ldr  w1,[x11,# sz_cpr]
-        mov  x2,lr  // dst
-        str  w3,[sp,#D_stm1 + D_sz_unc]  // sz_unc; lzma needs for EOF
-        add  x3, sp,#D_stm1 + D_sz_unc   // &sz_unc
-#if DEBUG  /*{*/
-        TRACE(#3)
-#endif  /*}*/
-        br x28  // decompress folded code, return to *lr
-
-#if DEBUG  /*{*/
-TRACE_BUFLEN=1024
-trace:  // preserves condition code (thank you, CBNZ) [if write() does!]
-        stp  x0, x1,[sp,#-32*8]!
-        stp  x2, x3,[sp,# 2*8]
-        stp  x4, x5,[sp,# 4*8]
-        stp  x6, x7,[sp,# 6*8]
-        stp  x8, x9,[sp,# 8*8]
-        stp x10,x11,[sp,#10*8]
-        stp x12,x13,[sp,#12*8]
-        stp x14,x15,[sp,#14*8]
-        stp x16,x17,[sp,#16*8]
-        stp x18,x19,[sp,#18*8]
-        stp x20,x21,[sp,#20*8]
-        stp x22,x23,[sp,#22*8]
-        stp x24,x25,[sp,#24*8]
-        stp x26,x27,[sp,#26*8]
-        stp x28,x29,[sp,#28*8]
-        add  x1,lr,#4  // u_pc
-        add  x2,sp,     #32*8 + 2*8  // u_sp
-        stp  x1, x2,[sp,#30*8]
-
-        ldr x1,[sp,#(1+ 32)*8]  // x1= u_x0
-        str x1,[sp]  // u_x0
-
-        mov x4,sp  // &u_x0
-        sub sp,sp,#TRACE_BUFLEN
-        mov x2,sp  // output string
-
-        mov w1,#'\n'; bl trace_hex  // In: r0 as label
-        mov w1,#'>';  strb w1,[x2],#1
-
-        mov w5,#10  // nrows to print
-L600:  // each row
-        add x1,sp,#TRACE_BUFLEN
-        sub x0,x4,x1
-        lsr x0,x0,#3; mov w1,#'\n'; bl trace_hex2  // which block of 4
-
-        mov w6,#4  // 64-bit words per row
-L610:  // each word
-        ldr x0,[x4],#8; mov w1,#(' '<<8)|' '; bl trace_hex  // next word
-        sub w6,w6,#1; cbnz w6,L610
-
-        sub w5,w5,#1; cbnz w5,L600
-
-        mov w0,#'\n'; strb w0,[x2],#1
-        mov x1,sp  // buf
-        sub x2,x2,x1  // count
-        mov w0,#2  // FD_STDERR
-        do_sys __NR_write
-        add sp,sp,#TRACE_BUFLEN
-
-        ldp x16,x17,[sp,#16*8]
-        ldp x18,x19,[sp,#18*8]
-        ldp x20,x21,[sp,#20*8]
-        ldp x22,x23,[sp,#22*8]
-        ldp x24,x25,[sp,#24*8]
-        ldp x26,x27,[sp,#26*8]
-        ldp x28,x29,[sp,#28*8]
-        ldp x30, x0,[sp,#30*8]
-        sub  lr, lr,#4  // our lr
-
-        ldp x14,x15,[sp,#14*8]
-        ldp x12,x13,[sp,#12*8]
-        ldp x10,x11,[sp,#10*8]
-        ldp  x8, x9,[sp,# 8*8]
-        ldp  x6, x7,[sp,# 6*8]
-        ldp  x4, x5,[sp,# 4*8]
-        ldp  x2, x3,[sp,# 2*8]
-        ldp  x0, x1,[sp],#32*8
-        ret
-
-trace_hex2:
-        mov w3,#2; b trace_hexwid
-trace_hex:  // In: x0=value, w1=punctuation before, x2=ptr; Uses: w3, x8
-        mov w3,#16  // ndigits
-trace_hexwid:  // In: x0= value; w1= punctuation; x2= ptr; w3= number of low-order digits
-        strb w1,[x2],#1; lsr w1,w1,#8; cbnz w1,trace_hexwid  // prefix punctuation
-        adr x8,hex
-L620:
-        sub w3,w3,#1  // number of less-significant digits
-        lsl w1,w3,#2  // 4 bits per hex digit
-        lsr x1,x0,x1  // right justify this digit
-        and x1,x1,#0xf
-        ldrb w1,[x8, x1]
-        strb w1,[x2],#1
-        sub w1,w3,#8; cbnz w1,0f; mov w1,#'_'; strb w1,[x2],#1  // 8-digit readability
-0:
-        cbnz w3,L620
-        ret
-hex:
-        .ascii "0123456789abcdef"
-#endif  /*}*/
-
+f_exp:
 f_decompress:
-#define LINUX_ARM_CACHEFLUSH 1
 
   section NRV_HEAD
         // empty
@@ -289,11 +175,210 @@ L71:
         /* IDENTSTR goes here */
 
   section ELFMAINZ
-o_binfo:
-        .word O_BINFO
-cpr0: .globl cpr0
-        /* { b_info={sz_unc, sz_cpr, {4 char}}, folded_loader...} */
+        .balign 4
+mmapRW0:
+        mov x5,#0  // offset
+mmapRW:
+        mov w2,#PROT_WRITE|PROT_READ
+mmap:
+        do_sys __NR_mmap
+        ret
 
+unfold:
+        mov xFOLD,lr
+// Reserve enough space to decompress the folded code onto xFOLD
+        ldr w0,  [xfexp,#sz_pack2 - f_exp]
+        add xelfa,xfexp,#sz_pack2 - f_exp
+        sub xelfa,xelfa,x0  // &Elf64_Ehdr of stub
+        ldr wszuf,[xFOLD,#sz_unc + LBINFO - LxFOLD]  // sz_unc of fold
+        sub x1,xFOLD,xelfa // offset(FOLD)
+        mov w4,#-1  // fd
+        mov w3,#MAP_PRIVATE|MAP_ANONYMOUS
+        add x1,x1,wszuf,uxtw  // length needed
+        mov x0,#0  // kernel chooses addr
+        call mmapRW0
+          PUSH2(x0,x1)  // ADRU, LENU
+
+// Duplicate the input data.
+        ldr w8,[xFOLD,#sz_cpr + LBINFO - LxFOLD]  // sz_cpr of fold
+        sub x1,xFOLD,xelfa  // offset(FOLD)
+        mov w4,wfd  // from file
+        mov w3,#MAP_PRIVATE|MAP_FIXED
+          PUSH2(xPMASK,xfd)
+        add x1,x1,x8  // + sz_cpr of fold; x1 <= .st_size
+        call mmapRW0  // IN: x0= ADRU;  OUT: x0= ADRU
+        sub xrelo,x0,xelfa  // relocation amount
+        mov x8,xfexp; add xfexp,xfexp,xrelo  // use old f_exp; xfexp= new &f_exp
+
+// Decompress from old folded code, overwriting new copy of folded code
+        ldr wobinf,[xFOLD,#        LOBINFO - LxFOLD]  // O_BINFO
+        add src,xFOLD,#sz_b_info +  LBINFO - LxFOLD  // old folded code
+        add xFOLD,xFOLD,xrelo  // dst for unfolding;  use copied data
+        add xLENM,xFOLD,wszuf,uxtw  // + sz_unc = last of unfolded
+        and xADRM,xfexp,xPMASK  // base for PROT_EXEC
+        sub xLENM,xLENM,xADRM  // length for PROT_EXEC
+    TRACE(#1)
+
+// The new f_exp has PROT_WRITE, so use the old f_exp to decompress
+        ldrb wmeth,[xFOLD,#b_method + LBINFO - LxFOLD]
+        PUSH1(xszuf)  // lzma uses for EOF
+        mov ldst,sp  // &slot on stack
+        mov dst,xFOLD  // dst for unfolding
+        ldr lsrc,[xFOLD,#sz_cpr + LBINFO - LxFOLD]
+        callr x8  // decompress it
+        POP1(x8)
+
+// Generate code to compute PAGE_MASK
+        ldr x0,[xFOLD,#1*4]  // 2nd instr
+        rbit x1,xPMASK
+        clz x1,x1  // # trailing 0's in xPMASK
+        add x1,x1,#1
+        lsl x1,x1,#2*5  // past two register numbers
+        orr x0,x0,x1
+        str x0,[xFOLD,#1*4]  // modify 2nd instr: "add x1,x0,#1+ count"
+
+// PROT_EXEC
+        mov w2,#PROT_EXEC|PROT_READ
+        mov w1,wLENM  // length
+        mov x0,xADRM  // base
+    TRACE(#2)
+        do_sys __NR_mprotect
+
+// Use the unfolded code
+        ldr wLENX,[xfexp,#sz_pack2 - f_exp]
+        add xADRX,xelfa,wobinf,uxtw  // old compressed &b_info
+        add xADRX,xADRX,xrelo  // new compressed &b_info
+
+        add x0,xFOLD,#4*4  // jmp over get_page_mask()
+        jr x0
+
+#if DEBUG  //{
+TRACE_BUFLEN=1024
+trace:  // preserves condition code (thank you, CBNZ) [if write() does!]
+        stp  x0, x1,[sp,#-32*NBPW]!
+        stp  x2, x3,[sp,# 2*NBPW]
+        stp  x4, x5,[sp,# 4*NBPW]
+        stp  x6, x7,[sp,# 6*NBPW]
+        stp  x8, x9,[sp,# 8*NBPW]
+        stp x10,x11,[sp,#10*NBPW]
+        stp x12,x13,[sp,#12*NBPW]
+        stp x14,x15,[sp,#14*NBPW]
+        stp x16,x17,[sp,#16*NBPW]
+        stp x18,x19,[sp,#18*NBPW]
+        stp x20,x21,[sp,#20*NBPW]
+        stp x22,x23,[sp,#22*NBPW]
+        stp x24,x25,[sp,#24*NBPW]
+        stp x26,x27,[sp,#26*NBPW]
+        stp x28,x29,[sp,#28*NBPW]
+        add  x1,lr,#4  // u_pc
+        add  x2,sp,     #32*NBPW + 2*NBPW  // u_sp
+        stp  x1, x2,[sp,#30*NBPW]
+
+        ldr x1,[sp,#(1+ 32)*NBPW]  // x1= u_x0
+        str x1,[sp]  // u_x0
+
+        mov x4,sp  // &u_x0
+        sub sp,sp,#TRACE_BUFLEN
+        mov x2,sp  // output string
+
+        mov w1,#'\n'; bl trace_hex  // In: r0 as label
+        mov w1,#'>';  strb w1,[x2],#1
+
+        mov w5,#10  // nrows to print
+L600:  // each row
+        add x1,sp,#TRACE_BUFLEN
+        sub x0,x4,x1
+        lsr x0,x0,#3; mov w1,#'\n'; bl trace_hex2  // which block of 4
+
+        mov w6,#4  // 64-bit words per row
+L610:  // each word
+        ldr x0,[x4],#8; mov w1,#(' '<<8)|' '; bl trace_hex  // next word
+        sub w6,w6,#1; cbnz w6,L610
+
+        sub w5,w5,#1; cbnz w5,L600
+
+        mov w0,#'\n'; strb w0,[x2],#1
+        mov x1,sp  // buf
+        sub x2,x2,x1  // count
+        mov w0,#2  // FD_STDERR
+        do_sys __NR_write
+        add sp,sp,#TRACE_BUFLEN
+
+        ldp x16,x17,[sp,#16*NBPW]
+        ldp x18,x19,[sp,#18*NBPW]
+        ldp x20,x21,[sp,#20*NBPW]
+        ldp x22,x23,[sp,#22*NBPW]
+        ldp x24,x25,[sp,#24*NBPW]
+        ldp x26,x27,[sp,#26*NBPW]
+        ldp x28,x29,[sp,#28*NBPW]
+        ldp x30, x0,[sp,#30*NBPW]
+        sub  lr, lr,#4  // our lr
+
+        ldp x14,x15,[sp,#14*NBPW]
+        ldp x12,x13,[sp,#12*NBPW]
+        ldp x10,x11,[sp,#10*NBPW]
+        ldp  x8, x9,[sp,# 8*NBPW]
+        ldp  x6, x7,[sp,# 6*NBPW]
+        ldp  x4, x5,[sp,# 4*NBPW]
+        ldp  x2, x3,[sp,# 2*NBPW]
+        ldp  x0, x1,[sp],#32*NBPW
+        ret
+
+trace_hex2:
+        mov w3,#2; b trace_hexwid
+trace_hex:  // In: x0=value, w1=punctuation before, x2=ptr; Uses: w3, x8
+        mov w3,#16  // ndigits
+trace_hexwid:  // In: x0= value; w1= punctuation; x2= ptr; w3= number of low-order digits
+        strb w1,[x2],#1; lsr w1,w1,#8; cbnz w1,trace_hexwid  // prefix punctuation
+        adr x8,hex
+L620:
+        sub w3,w3,#1  // number of less-significant digits
+        lsl w1,w3,#2  // 4 bits per hex digit
+        lsr x1,x0,x1  // right justify this digit
+        and x1,x1,#0xf
+        ldrb w1,[x8, x1]
+        strb w1,[x2],#1
+        sub w1,w3,#8; cbnz w1,0f; mov w1,#'_'; strb w1,[x2],#1  // 8-digit readability
+0:
+        cbnz w3,L620
+        ret
+hex:
+        .ascii "0123456789abcdef"
+#endif  //}
+
+proc_self_exe:
+        .asciz "/proc/self/exe"; .balign 4
+
+zfind:
+        ldr x1,[x0],#NBPW; cbnz x1,zfind
+        ret
+
+main:
+        mov xfexp,lr
+        mov x0,sp; call zfind  // x0= &envp
+        call zfind; mov xauxv,x0  // &Elf64_auxv
+
+// set xPMASK by finding actual page size in Elf64_auxv
+1:
+        ldp x1,x2,[x0],#8
+        cmp w1,#AT_PAGESZ; beq 2f
+        cbnz w1,1b  // AT_NULL
+        mov x2,#PAGE_SIZE  // default
+2:
+        neg xPMASK,x2  // save for folded code
+
+// Open /proc/self/exe
+        mov w0,#AT_FDCWD
+        adr x1,proc_self_exe
+        mov w2,O_RDONLY
+        do_sys __NR_openat; mov wfd,w0
+
+        call unfold
+LxFOLD:
+LOBINFO:
+        .int O_BINFO
+LBINFO:
+        // { b_info={sz_unc, sz_cpr, {4 char}}, folded_loader...}
 /*
 vi:ts=8:et:nowrap
 */

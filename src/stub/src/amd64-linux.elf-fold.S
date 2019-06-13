@@ -2,7 +2,7 @@
 *
 *  This file is part of the UPX executable compressor.
 *
-*  Copyright (C) 2000-2017 John F. Reiser
+*  Copyright (C) 2000-2019 John F. Reiser
 *  All Rights Reserved.
 *
 *  UPX and the UCL library are free software; you can redistribute them
@@ -27,6 +27,7 @@
 *  <jreiser@users.sourceforge.net>
 */
 
+NBPW= 8
 #include "arch/amd64/macros.S"
 #include "arch/amd64/regs.h"
 
@@ -66,25 +67,23 @@ __NR_brk=      12
 __NR_exit= 60
 __NR_readlink= 89
 
-/* In:
-    cld
-    %rbp= &decompress
-    %rsp= &{LENX,ADRX,LENU,ADRU,slide,argc,argv...,0,env...,0,auxv...,0...,strings}
-*/
+// IN:
+// %rbx= &O_BINFO; %rbp= f_exp; %r14= ADRX; %r15= LENX;
+// rsp/ elfaddr,fd,ADRU,LENU,rdx,%entry,  argc,argv,0,envp,0,auxv,0,strings
+
 fold_begin:
 ////    int3  // DEBUG only
-        call L90  # push &L90a
-L90a:
-        .asciz "/proc/self/exe"
-L90b:
+        call L90
 #include "arch/amd64/bxx.S"
 L90:
-        pop %rbx  # L90a
-        lea L90b - L90a(%rbx),%rax; push %rax  # &amdbxx: f_unfilter
+        pop %rax  # &f_unf
+        push %r14  // ADRX
+        push %r15  // LENX
+        push %rax  # &amdbxx: f_unf
         mov %rsp,%rsi
         sub $PATH_MAX,%rsp
         push %rsp; pop %rdi
-        push $7; pop %rcx; rep movsq  # f_unfilter,LENX,ADRX,LENU,ADRU,slide,argc
+        push $10; pop %rcx; rep movsq  # f_unf,LENX,ADRX,elfaddr,fd,ADRU,LENU,rdx,%entry,argc
 0:
         cmpq $0,(%rsi); movsq; jne 0b  # move past argv
         movq %rdi,%r14  # remember &new_env[0]
@@ -98,17 +97,16 @@ L90:
         mov %rsi,%r13  # beginning of strings
         sub %r15,%r12  # -length of auxv
 
-        push $ __NR_readlink
         movl $-1+ PATH_MAX,%arg3l # buflen
         push %rdi; pop %arg2  #buffer
-        push %rbx; pop %arg1  # "/proc/self/exe"
-        pop %rax; syscall; testl %eax,%eax; jns 0f
+        lea -4-15(%rbx),%arg1 # "/proc/self/exe"
+        push $ __NR_readlink; pop %rax; syscall; testl %eax,%eax; jns 0f
 // readlink() failed. Set the result equal to the argument.
-        push %rbx; pop %arg2  # result= "/proc/self/exe"
-        push $-1+ (L90b - L90a); pop %rax
+        push %arg1; pop %arg2  # result= "/proc/self/exe"
+        push $15; pop %rax  # 1+ strlen( )
 0:
         xchg %eax,%ecx  # %ecx= byte count
-        std
+     std
         lea -1(%r13),%rdi  # dst last byte
         movb $0,%al; stosb  # terminate
         lea -1(%arg2,%rcx),%rsi  # src last byte
@@ -121,6 +119,7 @@ L90:
 
         mov %ecx,%eax
         xor %edi,%eax
+        xor   $8,%eax
         and   $8,%eax
         sub %rax,%rdi  # keep 16-byte alignment of %rsp
 
@@ -129,51 +128,45 @@ L90:
         lea -8(%r15),%rsi  # &last qword of old auxv
         shr   $3,%rcx; rep movsq
         lea 8(%rdi),%rsp
-        cld
+     cld
 
         lea (%r14,%r12),%arg4  # &new Elf64_auxv
-        pop %arg6  # f_unfilter
+        movl -4(%rbx),%eax; and $1,%eax; add %rax,%arg4  # is_ptinterp
+        pop %arg6  # f_unf
         pop %arg2  # LENX
         pop %arg1  # ADRX
-        mov 2*8(%rsp),%rax  // slide
 
+        pop %rax  # elfaddr
         subq $ OVERHEAD,%rsp
         movq %rsp,%arg3  # &ELf64_Ehdr temporary space
+        push %rax  # elfaddr  7th arg
+
         movq %rbp,%arg5  # &decompress: f_expand
-        pushq %rax  // reloc
         call upx_main  # Out: %rax= entry
 /* entry= upx_main(b_info *arg1, total_size arg2, Elf64_Ehdr *arg3,
-                Elf32_Auxv_t *arg4, f_decompr arg5, f_unfilter arg6,
-                Elf64_Addr reloc )
+                Elf32_Auxv_t *arg4, f_decompr arg5, f_unf arg6,
+                Elf64_Addr elfaddr )
 */
-        push %rax; pop %rbp  # entry
-        popq %rdx  # reloc
-        addq $OVERHEAD,%rsp
+        addq $1*NBPW+OVERHEAD,%rsp  # toss elfaddr, too
+        movq %rax,4*NBPW(%rsp)  # entry
+        pop %rbx  # fd
 
-        push $__NR_open
-        sub %arg2l,%arg2l  # O_RDONLY
-        push %rbx; pop %arg1  # "/proc/self/exe"
-        pop %rax; syscall; xchg %eax,%ebx  # %ebx= fd
-
-        push $__NR_mmap
+// Map 1 page of /proc/self/exe so that it does not disappear.
         sub %arg6l,%arg6l  # 0 offset
-        mov %ebx,%arg5l
+        mov %ebx,%arg5l  # fd
         push $MAP_PRIVATE; pop %sys4  # BEWARE:  %sys4
         push $PROT_READ; pop %arg3
         mov $PAGE_SIZE,%arg2l
         push $0; pop %arg1
-        pop %rax; syscall
+        push $__NR_mmap; pop %rax; syscall
 
-        push $__NR_close
         mov %ebx,%edi  # fd
-        pop %rax; syscall
+        push $__NR_close; pop %rax; syscall
 
-        pop %arg2  # LENU
         pop %arg1  # ADRU
-        pop %rcx   # slide [unused]
-        push %rbp  # &entry
+        pop %arg2  # LENU
         push $ __NR_munmap; pop %rax
-        jmp *-8(%r14)  # goto: syscall; ret
+        jmp *-8(%r14)  # goto: syscall; pop %rdx; ret
 
 mmap: .globl mmap
         movb $ __NR_mmap,%al

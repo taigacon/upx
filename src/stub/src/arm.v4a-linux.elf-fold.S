@@ -2,7 +2,7 @@
 @
 @  This file is part of the UPX executable compressor.
 @
-@  Copyright (C) 2000-2017 John F. Reiser
+@  Copyright (C) 2000-2019 John F. Reiser
 @  All Rights Reserved.
 @
 @  UPX and the UCL library are free software; you can redistribute them
@@ -40,6 +40,7 @@ sz_b_info = 12
   sz_cpr= 4
   b_method= 8
 
+MAP_ANONYMOUS= 0x20
 MAP_PRIVATE=   0x02
 MAP_FIXED=     0x10
 
@@ -58,47 +59,52 @@ PATH_MAX= 4096
 #define TRACE_REGS r0-r12,r14,r15
 #endif  /*}*/
 
-@@ control just falls through, after this part and compiled C code
-@@ are uncompressed.
-
 #define OVERHEAD 2048
 #define MAX_ELF_HDR 512
 
+mflg_data: .int MAP_PRIVATE|MAP_ANONYMOUS  @ overwritten for QNX vs Linux
+
 SP_fd= 3*4
 /* In:
-   r11= &f_exp
-    r3= MFLG
-    sp/ LENX,ADRX, dynbase,%fd, ADRU,LENU, f_exp,%entry, argc,argv,0,env,0,auxv
+   r4= LENX
+   r5= ADRX
+   lr= "/proc/self/exe"
+new sp/            elfaddr,fd, ADRU,LENU, f_exp,%entry, argc,argv,0,envp,0,auxv
         (ADRX,LENX) = extent of compressed program (after moving)
         (ADRU,LENU) = params for final munmap()
 */
-fold_begin:
+fold_begin:  // enter here
 #if DEBUG  //{
 #define TRACE_REGS r0-r12,r14,r15
         mov r0,sp  @ current stack pointer (extra clue)
         stmdb sp!,{TRACE_REGS}; mov r0,#0x10; bl trace
 #endif  //}
-        ldr r2,mflg_here
-        orr r2,r2,r3  @ modify the instruction
-        str r2,mflg_here
-
-        ldmia sp!,{r4,r5,r6,r7,r8,r9,r10,r11,r12}  @ r12= argc
+        ldmia sp!,{      r6,r7,r8,r9,r10,r11,r12}  @ r12= argc
         mov r1,sp  @ src (argv)
         sub sp,sp,#PATH_MAX
         mov r0,sp  @ dst
         stmdb sp!,{r4,r5,r6,r7,r8,r9,r10,r11,r12}  @ r12= argc
-        mov r11,r10  @ restore f_exp
+F_LENX=    0*4
+F_ADRX=    1*4
+F_elfaddr= 2*4
+F_fd=      3*4
+F_ADRU=    4*4
+F_LENU=    5*4
+F_f_exp=   6*4
+  F_e_auxv=  F_f_exp
+F_entry=   7*4
+
 0: // copy argv down
         ldr r3,[r1],#4; cmp r3,#0
         str r3,[r0],#4; bne 0b
-
      mov r4,r0  @ &new_env[0]
         str r3,[r0],#4  @ space for new_env[0]
+
 0: // copy env down
         ldr r3,[r1],#4; cmp r3,#0
         str r3,[r0],#4; bne 0b
-
      mov r5,r1  @ &orig_auxv[0]
+
 0: // copy auxv down
         ldmia r1!,{r2,r3}; cmp r2,#0
         stmia r0!,{r2,r3}; bne 0b
@@ -107,13 +113,14 @@ fold_begin:
 
         mov r2,#PATH_MAX
         mov r1,r0  @ buffer
-        adr r0,proc_self_exe  @ arg1
+        mov r0,lr  @ arg1= "/proc/self/exe"
         sub r2,r2,#1  @ room for null terminator
-        bl readlink; add r2,r1,r0  @ provisional end
-        cmn r0,#4096; bcc link_ok  @ no error
-        adr r1,proc_self_exe    @ buffer (input name)
-        add r2,r1,#proc_self_align - proc_self_exe  @ end
+        bl readlink
+        cmn r0,#4096
+        movcs r1,lr  @ "/proc/self/exe"
+        movcs r0,#14  @ strlen("/proc/self/exe")
 link_ok:
+        add r2,r1,r0  @ end
         mov r0,r6  @ &old_strings
         mov  r3,#0;        strb r3,[r0,#-1]!  @ terminate link name
 0: // copy backwards to beginning
@@ -137,27 +144,22 @@ link_ok:
         sub r3,r0,r6  @ &new_auxv[end] - &orig_auxv[end]
         add r3,r3,r5  @ &new_auxv[0] = delta +  &orig_auxv[0]
         mov r1,r9  @ &down_auxv[end]
-        str r0,[sp,#6*4]  @ replace f_exp with &new_auxv[end]
+        ldr r5,[sp,#F_f_exp]  @ save f_exp
+        str r0,[sp,#F_e_auxv]  @ replace f_exp with &new_auxv[end]
 0:
         ldr r2,[r1,#-4]!; cmp r1,sp
         str r2,[r0,#-4]!; bne 0b
         mov sp,r0
-
-// open /proc/self/exe to keep it from disappearing
-        adr r0,proc_self_exe
-        mov r1,#O_RDONLY
-        bl open  @ no error check: cannot recover
-        str r0,[sp,#SP_fd]  @ fd
 
 #if DEBUG  //{
         stmdb sp!,{TRACE_REGS}; mov r0,#0x12; bl trace
 #endif  //}
 
 /* Construct arglist for upx_main */
-        mov r5,r11  @ f_exp
-        ldmia sp!,{r9,r10,r11}  @ LENX, ADRX, dynbase
+        @ldr r5,[sp,#F_f_exp]
+        ldmia sp!,{r4,r10,r11}  @ LENX, ADRX, elfaddr
+F_delta= 3*4
         sub sp,sp,#MAX_ELF_HDR + OVERHEAD  @ alloca
-        mov r4,r9  @ total size of compressed data
         ldr r9,[r10,#sz_cpr]  @ xi.size  of ELF headers
         mov r8,sp  @ xo.ptr
         ldr r7,[r10,#sz_unc]  @ xo.size
@@ -171,26 +173,30 @@ link_ok:
         stmdb sp!,{TRACE_REGS}; mov r0,#0x13; bl trace
 #endif  //}
 // r0=av; r1=sz_cpr; r2=f_decompress; r3=f_unfilter;
-// xo={sz_unc, &tmp_ehdr}, xi={sz_cpr, &b_info}, dynbase
+// xo={sz_unc, &tmp_ehdr}, xi={sz_cpr, &b_info}, elfaddr
         bl upx_main
         add sp,sp,#(9-4)*4
         add sp,sp,#MAX_ELF_HDR + OVERHEAD  @ un-alloca
 #if DEBUG  //{
         stmdb sp!,{TRACE_REGS}; mov r0,#0x14; bl trace
 #endif  //}
-        str r0,[sp,#4*4]  @ entry address
+        str r0,[sp,#F_entry - F_delta]  @ entry address
 
 // Map 1 page of /proc/self/exe so that it does not disappear
-        mov r5,#0  @ SEEK_SET
-        ldr r4,[sp]  @ fd
+        ldr r4,[sp],#4  @ pop r4,F_fd
+        mov r5,#0  @ SEEK_SET offset
+        stmdb sp!,{r4,r5}  @ arg5,arg6 calling convention
         mov r3,#MAP_PRIVATE
         mov r2,#PROT_READ
         mov r1,#PAGE_SIZE
         mov r0,#0  @ any address
         bl mmap  @ no error check: cannot recover
-        ldr r0,[sp],#4  @ fd
+        ldmia sp!,{r0,r1}  @ fd, offset
         bl close
 
+#if DEBUG  //{
+        stmdb sp!,{TRACE_REGS}; mov r0,#0x15; bl trace
+#endif  //}
         ldmia sp!,{r0,r1,r2, lr}  @ ADRU,LENU,1+ &Elf32_auxv_t[AT_NULL@.a_type], entry
         // crumb is unused: replaced by mapping /proc/self/exe into a free page
 
@@ -210,15 +216,17 @@ link_ok:
         mov r10,#0
         mov r11,#0
 
+#if 1|DEBUG  //{
 /* Heuristic cache flush: sweep contiguous range to force collisions and evictions. */
-        sub r12,sp,#(1<<19)  @ limit: 1/2 MB more
+        sub r12,sp,#(1<<18)  @ limit: 1/4 MB more
 sweep:
         ldr r7,[sp],#-(1<<5)  @ extend stack; read allocate 32 bytes
         str r7,[sp]  @ make it dirty
         ldr r7,[sp]  @ read alocate again in case dirtying caused COW split
         cmp r12,sp; blo sweep
 
-        add sp,sp,#(1<<19)  @ pop stack
+        add sp,sp,#(1<<18)  @ pop stack
+#endif  //}
 
 #if defined(ARMEL_DARWIN)  /*{*/
         mov r7,#0
@@ -403,14 +411,13 @@ __clear_cache:
 
         .globl mmap
 mmap:
-        str r5,[sp,#-4]!; ldr r5,[sp,#4+4]
-        str r4,[sp,#-4]!; ldr r4,[sp,#4+4]
+        stmdb sp!,{r4,r5,lr}
+        ldr r5,[sp,#4*4]
+        ldr r4,[sp,#3*4]
         mov r5,r5,lsr #12  @ convert to page number
 mmap_do:
         do_sys __NR_mmap2
-        ldr r4,[sp],#4
-        ldr r5,[sp],#4
-        ret
+        ldmia sp!,{r4,r5,pc}
 
 get_sys_munmap: .globl get_sys_munmap  // r0= system call instruction
 #if defined(ARMEL_DARWIN)  /*{*/
@@ -425,12 +432,12 @@ get_sys_munmap: .globl get_sys_munmap  // r0= system call instruction
         ret
 
 mmap_privanon: .globl mmap_privanon
-        str r5,[sp,#-4]!; mov r5,#0  @ offset= 0
-        str r4,[sp,#-4]!; mvn r4,#0  @ fd= -1
-mflg_here:  // The next instruction is re-written once.
-        orr r3,r3,#0  @ flags |= MAP_{PRIVATE|ANON}  [QNX vs Linux]
+        stmdb sp!,{r4,r5,lr}
+        ldr r4,mflg_data  @ Map_PRIVATE|MAP_ANON for Linux; MAP_PRIVANON for QNX
+        mov r5,#0  @ offset= 0
+        orr r3,r3,r4  @ combine with input (such as MAP_FIXED)
+        mvn r4,#0  @ fd= -1
         b mmap_do
-
 
 #if 1|DEBUG  /*{*/
 

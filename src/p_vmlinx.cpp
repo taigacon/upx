@@ -2,9 +2,9 @@
 
    This file is part of the UPX executable compressor.
 
-   Copyright (C) 2004-2017 John Reiser
-   Copyright (C) 1996-2017 Markus Franz Xaver Johannes Oberhumer
-   Copyright (C) 1996-2017 Laszlo Molnar
+   Copyright (C) 2004-2019 John Reiser
+   Copyright (C) 1996-2019 Markus Franz Xaver Johannes Oberhumer
+   Copyright (C) 1996-2019 Laszlo Molnar
    All Rights Reserved.
 
    UPX and the UCL library are free software; you can redistribute them
@@ -111,7 +111,8 @@ typename T::Shdr const *PackVmlinuxBase<T>::getElfSections()
     int j;
     for (p = shdri, j= ehdri.e_shnum; --j>=0; ++p) {
         if (Shdr::SHT_STRTAB==p->sh_type
-        &&  (p->sh_size + p->sh_offset) <= (unsigned) file_size
+        &&  (p->sh_size + p->sh_offset) <= (unsigned long)file_size
+        &&       p->sh_name  <  p->sh_size
         &&  (10+ p->sh_name) <= p->sh_size  // 1+ strlen(".shstrtab")
         ) {
             delete [] shstrtab;
